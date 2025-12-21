@@ -143,10 +143,21 @@ export const detectSeries = async () => {
   return data
 }
 
+export const getTaggedSeries = async () => {
+  const { data } = await api.get('/tracks/series/tagged')
+  return data
+}
+
 export const applySeriesAlbum = async (trackIds, album, artist = null) => {
   const { data } = await api.post('/tracks/series/apply-album', trackIds, { 
     params: { album, artist } 
   })
+  return data
+}
+
+// Database maintenance
+export const resyncDatabase = async () => {
+  const { data } = await api.post('/tracks/resync')
   return data
 }
 

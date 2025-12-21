@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Music, 
@@ -7,9 +7,67 @@ import {
   ChevronDown, 
   ChevronRight,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  Search,
+  X,
+  CheckCircle2,
+  AlertTriangle,
+  XCircle
 } from 'lucide-react'
-import { detectSeries, applySeriesAlbum } from '../api'
+import { detectSeries, getTaggedSeries, applySeriesAlbum } from '../api'
+
+// Toast notification component for errors
+function ErrorToast({ errors, onClose, message }) {
+  if (!errors || errors.length === 0) return null
+  
+  return (
+    <div className="fixed bottom-4 right-4 max-w-lg bg-red-900/95 border border-red-700 rounded-xl shadow-2xl p-4 z-50">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="w-6 h-6 text-red-400 flex-shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="font-semibold text-red-200">{message}</h4>
+            <button onClick={onClose} className="text-red-400 hover:text-red-300">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="max-h-48 overflow-y-auto space-y-1">
+            {errors.slice(0, 10).map((err, i) => (
+              <div key={i} className="text-sm text-red-300 truncate">
+                <span className="text-red-400">{err.filename}:</span> {err.error}
+              </div>
+            ))}
+            {errors.length > 10 && (
+              <div className="text-sm text-red-400 italic">
+                ...and {errors.length - 10} more errors
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Success toast component
+function SuccessToast({ message, onClose }) {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 5000)
+    return () => clearTimeout(timer)
+  }, [onClose])
+  
+  return (
+    <div className="fixed bottom-4 right-4 max-w-lg bg-green-900/95 border border-green-700 rounded-xl shadow-2xl p-4 z-50">
+      <div className="flex items-center gap-3">
+        <CheckCircle2 className="w-6 h-6 text-green-400" />
+        <span className="text-green-200">{message}</span>
+        <button onClick={onClose} className="text-green-400 hover:text-green-300 ml-auto">
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+    </div>
+  )
+}
 
 function SeriesCard({ series, seriesIndex, onApply, applyingIndex }) {
   const [isExpanded, setIsExpanded] = useState(false)
@@ -199,24 +257,241 @@ function SeriesCard({ series, seriesIndex, onApply, applyingIndex }) {
   )
 }
 
+function TaggedSeriesCard({ series, onApply, applyingIndex, seriesIndex }) {
+  const [isExpanded, setIsExpanded] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [selectedTracks, setSelectedTracks] = useState(
+    series.tracks.map(t => t.track_id)
+  )
+  const [albumName, setAlbumName] = useState(series.suggested_album)
+  const [artistName, setArtistName] = useState(series.suggested_artist || '')
+  
+  const isApplying = applyingIndex === seriesIndex
+
+  const toggleTrack = (trackId) => {
+    setSelectedTracks(prev => 
+      prev.includes(trackId) 
+        ? prev.filter(id => id !== trackId)
+        : [...prev, trackId]
+    )
+  }
+
+  const selectAll = () => {
+    setSelectedTracks(series.tracks.map(t => t.track_id))
+  }
+
+  const selectNone = () => {
+    setSelectedTracks([])
+  }
+
+  return (
+    <div className="bg-gray-800/50 rounded-xl border border-gray-700/50 overflow-hidden">
+      {/* Header */}
+      <div 
+        className="p-4 cursor-pointer hover:bg-gray-750 flex items-center justify-between"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg flex items-center justify-center">
+            <CheckCircle2 className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-lg">{series.series_name}</h3>
+            <p className="text-sm text-gray-400">
+              {series.track_count} episodes • {series.suggested_artist || 'Various'}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded-full">
+            Tagged
+          </span>
+          {isExpanded ? (
+            <ChevronDown className="w-5 h-5 text-gray-400" />
+          ) : (
+            <ChevronRight className="w-5 h-5 text-gray-400" />
+          )}
+        </div>
+      </div>
+
+      {/* Expanded Content */}
+      {isExpanded && (
+        <div className="border-t border-gray-700 p-4 space-y-4">
+          {/* Edit toggle */}
+          <div className="flex items-center justify-between">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setIsEditing(!isEditing)
+              }}
+              className="text-sm text-primary-400 hover:text-primary-300"
+            >
+              {isEditing ? 'Cancel Edit' : 'Edit & Re-tag'}
+            </button>
+            {isEditing && (
+              <div className="flex gap-2">
+                <button
+                  onClick={selectAll}
+                  className="text-sm text-primary-400 hover:text-primary-300"
+                >
+                  Select All
+                </button>
+                <span className="text-gray-600">|</span>
+                <button
+                  onClick={selectNone}
+                  className="text-sm text-primary-400 hover:text-primary-300"
+                >
+                  Select None
+                </button>
+                <span className="text-sm text-gray-400 ml-2">
+                  {selectedTracks.length} selected
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Album/Artist inputs (only when editing) */}
+          {isEditing && (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm text-gray-400">Album Name</label>
+                <input
+                  type="text"
+                  value={albumName}
+                  onChange={(e) => setAlbumName(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="w-full mt-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:border-primary-500"
+                />
+              </div>
+              <div>
+                <label className="text-sm text-gray-400">Artist (optional)</label>
+                <input
+                  type="text"
+                  value={artistName}
+                  onChange={(e) => setArtistName(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="w-full mt-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:border-primary-500"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Track list */}
+          <div className="max-h-48 overflow-y-auto space-y-1">
+            {series.tracks.map((track) => (
+              <div
+                key={track.track_id}
+                onClick={(e) => {
+                  if (isEditing) {
+                    e.stopPropagation()
+                    toggleTrack(track.track_id)
+                  }
+                }}
+                className={`p-2 rounded-lg flex items-center gap-3 ${
+                  isEditing 
+                    ? selectedTracks.includes(track.track_id)
+                      ? 'bg-primary-500/20 border border-primary-500/50 cursor-pointer'
+                      : 'bg-gray-700/30 cursor-pointer hover:bg-gray-700/50'
+                    : 'bg-gray-700/30'
+                }`}
+              >
+                {isEditing ? (
+                  <div className={`w-5 h-5 rounded border flex items-center justify-center ${
+                    selectedTracks.includes(track.track_id)
+                      ? 'bg-primary-500 border-primary-500'
+                      : 'border-gray-600'
+                  }`}>
+                    {selectedTracks.includes(track.track_id) && (
+                      <Check className="w-3 h-3" />
+                    )}
+                  </div>
+                ) : (
+                  <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm truncate">{track.filename}</p>
+                  <p className="text-xs text-gray-500">
+                    Album: {track.matched_album || track.current_album || 'None'}
+                    {track.episode && ` • Episode ${track.episode}`}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Apply button (only when editing) */}
+          {isEditing && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onApply(seriesIndex, selectedTracks, albumName, artistName)
+              }}
+              disabled={selectedTracks.length === 0 || isApplying}
+              className="w-full px-4 py-2 bg-primary-600 hover:bg-primary-700 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg flex items-center justify-center gap-2"
+            >
+              {isApplying ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Check className="w-4 h-4" />
+              )}
+              Re-tag {selectedTracks.length} Tracks
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Series() {
   const queryClient = useQueryClient()
   const [applyingIndex, setApplyingIndex] = useState(null)
+  const [applyingTaggedIndex, setApplyingTaggedIndex] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [activeTab, setActiveTab] = useState('untagged') // 'untagged' or 'tagged'
+  const [toast, setToast] = useState(null) // { type: 'error' | 'success', message, errors? }
 
   const { data: series, isLoading, error } = useQuery({
     queryKey: ['series'],
     queryFn: detectSeries,
   })
 
+  const { data: taggedSeries, isLoading: isLoadingTagged } = useQuery({
+    queryKey: ['taggedSeries'],
+    queryFn: getTaggedSeries,
+  })
+
   const applyMutation = useMutation({
     mutationFn: ({ trackIds, album, artist }) => applySeriesAlbum(trackIds, album, artist),
-    onSuccess: () => {
+    onSuccess: (data) => {
       setApplyingIndex(null)
+      setApplyingTaggedIndex(null)
       queryClient.invalidateQueries(['series'])
+      queryClient.invalidateQueries(['taggedSeries'])
       queryClient.invalidateQueries(['tracks'])
+      
+      // Check if there were errors writing to files
+      if (data.errors && data.errors.length > 0) {
+        setToast({
+          type: 'error',
+          message: `${data.written}/${data.total_files} files written. ${data.errors.length} errors:`,
+          errors: data.errors
+        })
+      } else {
+        setToast({
+          type: 'success',
+          message: data.message || `Successfully updated ${data.updated} tracks`
+        })
+      }
     },
-    onError: () => {
+    onError: (error) => {
       setApplyingIndex(null)
+      setApplyingTaggedIndex(null)
+      setToast({
+        type: 'error',
+        message: 'Failed to apply changes',
+        errors: [{ filename: 'API Error', error: error.message || 'Unknown error' }]
+      })
     },
   })
 
@@ -225,10 +500,45 @@ function Series() {
     applyMutation.mutate({ trackIds, album, artist })
   }
 
-  // Calculate total tracks needing attention
-  const totalTracks = series?.reduce((sum, s) => sum + s.track_count, 0) || 0
+  const handleApplyTagged = (index, trackIds, album, artist) => {
+    setApplyingTaggedIndex(index)
+    applyMutation.mutate({ trackIds, album, artist })
+  }
 
-  if (isLoading) {
+  // Filter series based on search query
+  const filteredSeries = useMemo(() => {
+    if (!series) return []
+    if (!searchQuery.trim()) return series
+    
+    const query = searchQuery.toLowerCase()
+    return series.filter(s => {
+      if (s.series_name?.toLowerCase().includes(query)) return true
+      if (s.suggested_album?.toLowerCase().includes(query)) return true
+      if (s.suggested_artist?.toLowerCase().includes(query)) return true
+      if (s.tracks?.some(t => t.filename?.toLowerCase().includes(query))) return true
+      return false
+    })
+  }, [series, searchQuery])
+
+  // Filter tagged series based on search query
+  const filteredTaggedSeries = useMemo(() => {
+    if (!taggedSeries) return []
+    if (!searchQuery.trim()) return taggedSeries
+    
+    const query = searchQuery.toLowerCase()
+    return taggedSeries.filter(s => {
+      if (s.series_name?.toLowerCase().includes(query)) return true
+      if (s.suggested_artist?.toLowerCase().includes(query)) return true
+      if (s.tracks?.some(t => t.filename?.toLowerCase().includes(query))) return true
+      return false
+    })
+  }, [taggedSeries, searchQuery])
+
+  // Calculate totals
+  const totalTracks = series?.reduce((sum, s) => sum + s.track_count, 0) || 0
+  const totalTaggedTracks = taggedSeries?.reduce((sum, s) => sum + s.track_count, 0) || 0
+
+  if (isLoading && isLoadingTagged) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
@@ -248,56 +558,207 @@ function Series() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Series Detection</h1>
-          <p className="text-gray-400 mt-1">
-            Automatically detected podcast and radio show series in your library. 
-            Apply consistent album names to group episodes together.
-          </p>
-        </div>
-        {series && series.length > 0 && (
-          <div className="text-right">
-            <div className="text-2xl font-bold text-primary-400">{series.length}</div>
-            <div className="text-sm text-gray-400">series • {totalTracks} tracks</div>
+      <div>
+        <h1 className="text-2xl font-bold">Series Detection</h1>
+        <p className="text-gray-400 mt-1">
+          Automatically detected podcast and radio show series in your library. 
+          Apply consistent album names to group episodes together.
+        </p>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-2 border-b border-gray-700">
+        <button
+          onClick={() => setActiveTab('untagged')}
+          className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors ${
+            activeTab === 'untagged'
+              ? 'border-primary-500 text-primary-400'
+              : 'border-transparent text-gray-400 hover:text-gray-300'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <Disc3 className="w-4 h-4" />
+            <span>To Tag</span>
+            {series && series.length > 0 && (
+              <span className={`px-2 py-0.5 rounded-full text-xs ${
+                activeTab === 'untagged' 
+                  ? 'bg-primary-500/20 text-primary-400' 
+                  : 'bg-gray-700 text-gray-400'
+              }`}>
+                {series.length}
+              </span>
+            )}
           </div>
+        </button>
+        <button
+          onClick={() => setActiveTab('tagged')}
+          className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors ${
+            activeTab === 'tagged'
+              ? 'border-green-500 text-green-400'
+              : 'border-transparent text-gray-400 hover:text-gray-300'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4" />
+            <span>Already Tagged</span>
+            {taggedSeries && taggedSeries.length > 0 && (
+              <span className={`px-2 py-0.5 rounded-full text-xs ${
+                activeTab === 'tagged' 
+                  ? 'bg-green-500/20 text-green-400' 
+                  : 'bg-gray-700 text-gray-400'
+              }`}>
+                {taggedSeries.length}
+              </span>
+            )}
+          </div>
+        </button>
+      </div>
+
+      {/* Search Bar */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+        <input
+          type="text"
+          placeholder={`Search ${activeTab === 'untagged' ? 'untagged' : 'tagged'} series by name, artist, or track filename...`}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full pl-10 pr-10 py-3 bg-gray-800 border border-gray-700 rounded-xl focus:outline-none focus:border-primary-500 placeholder-gray-500"
+        />
+        {searchQuery && (
+          <button
+            onClick={() => setSearchQuery('')}
+            className="absolute right-3 top-1/2 transform -translate-y-1/2 p-1 hover:bg-gray-700 rounded-full"
+          >
+            <X className="w-4 h-4 text-gray-400" />
+          </button>
         )}
       </div>
 
-      {/* Info box */}
-      <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
-        <div className="flex gap-3">
-          <Disc3 className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm text-blue-200">
-              <strong>Tip:</strong> Setting the album tag to the series name (e.g., "A State of Trance") 
-              helps music players group all episodes together. Tracks you've already tagged won't appear here again.
-            </p>
+      {/* Tab Content */}
+      {activeTab === 'untagged' ? (
+        <>
+          {/* Info box */}
+          <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
+            <div className="flex gap-3">
+              <Disc3 className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm text-blue-200">
+                  <strong>Tip:</strong> Setting the album tag to the series name (e.g., "A State of Trance") 
+                  helps music players group all episodes together.
+                </p>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
 
-      {/* Series list */}
-      {series && series.length > 0 ? (
-        <div className="space-y-4">
-          {series.map((s, index) => (
-            <SeriesCard
-              key={`${s.series_name}-${index}`}
-              seriesIndex={index}
-              series={s}
-              onApply={handleApply}
-              applyingIndex={applyingIndex}
-            />
-          ))}
-        </div>
+          {/* Stats */}
+          {series && series.length > 0 && (
+            <div className="text-sm text-gray-400">
+              {searchQuery 
+                ? `Found ${filteredSeries.length} series matching "${searchQuery}"`
+                : `${series.length} series detected • ${totalTracks} tracks`
+              }
+            </div>
+          )}
+
+          {/* Untagged Series list */}
+          {filteredSeries.length > 0 ? (
+            <div className="space-y-4">
+              {filteredSeries.map((s, index) => (
+                <SeriesCard
+                  key={`${s.series_name}-${index}`}
+                  seriesIndex={index}
+                  series={s}
+                  onApply={handleApply}
+                  applyingIndex={applyingIndex}
+                />
+              ))}
+            </div>
+          ) : searchQuery ? (
+            <div className="text-center py-12 text-gray-400">
+              <Search className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p>No untagged series found matching "{searchQuery}"</p>
+              <button
+                onClick={() => setSearchQuery('')}
+                className="mt-2 text-primary-400 hover:text-primary-300 text-sm"
+              >
+                Clear search
+              </button>
+            </div>
+          ) : (
+            <div className="text-center py-12 text-gray-400">
+              <CheckCircle2 className="w-12 h-12 mx-auto mb-4 opacity-50 text-green-500" />
+              <p>All series have been tagged!</p>
+              <p className="text-sm mt-2">
+                Check the "Already Tagged" tab to see your tagged series.
+              </p>
+            </div>
+          )}
+        </>
       ) : (
-        <div className="text-center py-12 text-gray-400">
-          <Music className="w-12 h-12 mx-auto mb-4 opacity-50" />
-          <p>No podcast or radio show series detected in your library.</p>
-          <p className="text-sm mt-2">
-            Try scanning a directory with DJ sets like "A State of Trance" episodes.
-          </p>
-        </div>
+        <>
+          {/* Stats */}
+          {taggedSeries && taggedSeries.length > 0 && (
+            <div className="text-sm text-gray-400">
+              {searchQuery 
+                ? `Found ${filteredTaggedSeries.length} series matching "${searchQuery}"`
+                : `${taggedSeries.length} series tagged • ${totalTaggedTracks} tracks`
+              }
+            </div>
+          )}
+
+          {/* Tagged Series list */}
+          {isLoadingTagged ? (
+            <div className="flex items-center justify-center h-32">
+              <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+            </div>
+          ) : filteredTaggedSeries.length > 0 ? (
+            <div className="space-y-3">
+              {filteredTaggedSeries.map((s, index) => (
+                <TaggedSeriesCard
+                  key={`tagged-${s.series_name}-${index}`}
+                  series={s}
+                  seriesIndex={index}
+                  onApply={handleApplyTagged}
+                  applyingIndex={applyingTaggedIndex}
+                />
+              ))}
+            </div>
+          ) : searchQuery ? (
+            <div className="text-center py-12 text-gray-400">
+              <Search className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p>No tagged series found matching "{searchQuery}"</p>
+              <button
+                onClick={() => setSearchQuery('')}
+                className="mt-2 text-primary-400 hover:text-primary-300 text-sm"
+              >
+                Clear search
+              </button>
+            </div>
+          ) : (
+            <div className="text-center py-12 text-gray-400">
+              <Music className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p>No tagged series yet.</p>
+              <p className="text-sm mt-2">
+                Tag series from the "To Tag" tab to see them here.
+              </p>
+            </div>
+          )}
+        </>
+      )}
+      
+      {/* Toast notifications */}
+      {toast?.type === 'error' && (
+        <ErrorToast 
+          errors={toast.errors} 
+          message={toast.message}
+          onClose={() => setToast(null)} 
+        />
+      )}
+      {toast?.type === 'success' && (
+        <SuccessToast 
+          message={toast.message} 
+          onClose={() => setToast(null)} 
+        />
       )}
     </div>
   )

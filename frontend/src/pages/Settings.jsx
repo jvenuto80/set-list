@@ -7,9 +7,13 @@ import {
   Save,
   RotateCcw,
   Plus,
-  Trash2
+  Trash2,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle2,
+  Database
 } from 'lucide-react'
-import { getSettings, updateSettings, listDirectories } from '../api'
+import { getSettings, updateSettings, listDirectories, resyncDatabase } from '../api'
 
 function DirectoryBrowser({ currentPath, onSelect }) {
   const { data: dirs, isLoading } = useQuery({
@@ -55,6 +59,7 @@ function Settings() {
   const [showDirBrowser, setShowDirBrowser] = useState(false)
   const [browsingPath, setBrowsingPath] = useState('/')
   const [browsingIndex, setBrowsingIndex] = useState(0)  // Which directory we're browsing for
+  const [resyncResult, setResyncResult] = useState(null)
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ['settings'],
@@ -79,6 +84,19 @@ function Settings() {
     onSuccess: () => {
       queryClient.invalidateQueries(['settings'])
     },
+  })
+
+  const resyncMutation = useMutation({
+    mutationFn: resyncDatabase,
+    onSuccess: (data) => {
+      setResyncResult(data)
+      queryClient.invalidateQueries(['tracks'])
+      queryClient.invalidateQueries(['series'])
+      queryClient.invalidateQueries(['taggedSeries'])
+    },
+    onError: (error) => {
+      setResyncResult({ error: error.message || 'Resync failed' })
+    }
   })
 
   const handleSubmit = (e) => {
@@ -339,6 +357,84 @@ function Settings() {
           </div>
         )}
       </form>
+
+      {/* Database Maintenance */}
+      <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+        <div className="flex items-center gap-3 mb-4">
+          <Database className="w-5 h-5 text-primary-500" />
+          <h2 className="text-lg font-semibold">Database Maintenance</h2>
+        </div>
+        
+        <div className="space-y-4">
+          <div>
+            <p className="text-gray-400 text-sm mb-3">
+              Resync the database with actual file tags. This reads the tags from your music files 
+              and updates the database to match. Use this if files were tagged externally or if the 
+              database is out of sync with your files.
+            </p>
+            
+            <button
+              onClick={() => {
+                setResyncResult(null)
+                resyncMutation.mutate()
+              }}
+              disabled={resyncMutation.isPending}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 rounded-lg flex items-center gap-2 disabled:opacity-50"
+            >
+              {resyncMutation.isPending ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  Resyncing...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-4 h-4" />
+                  Resync Database
+                </>
+              )}
+            </button>
+          </div>
+          
+          {resyncResult && (
+            <div className={`p-4 rounded-lg ${resyncResult.error ? 'bg-red-900/50 border border-red-700' : 'bg-gray-700'}`}>
+              {resyncResult.error ? (
+                <div className="flex items-center gap-2 text-red-400">
+                  <AlertTriangle className="w-5 h-5" />
+                  <span>{resyncResult.error}</span>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-green-400">
+                    <CheckCircle2 className="w-5 h-5" />
+                    <span>{resyncResult.message}</span>
+                  </div>
+                  <div className="text-sm text-gray-400">
+                    <div>Tracks checked: {resyncResult.checked}</div>
+                    <div>Tracks updated: {resyncResult.updated}</div>
+                    {resyncResult.errors?.length > 0 && (
+                      <div className="mt-2">
+                        <div className="text-amber-400">Errors ({resyncResult.errors.length}):</div>
+                        <div className="max-h-32 overflow-auto mt-1">
+                          {resyncResult.errors.slice(0, 10).map((err, i) => (
+                            <div key={i} className="text-red-400 text-xs truncate">
+                              {err.filename}: {err.error}
+                            </div>
+                          ))}
+                          {resyncResult.errors.length > 10 && (
+                            <div className="text-gray-500 text-xs">
+                              ...and {resyncResult.errors.length - 10} more
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

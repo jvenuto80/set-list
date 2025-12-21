@@ -234,10 +234,21 @@ async def detect_series(min_tracks: int = Query(2, description="Minimum tracks t
         # "(20 July 2016)" or "(July 2016)" or "(2016)"
         name = re.sub(r'\s*\([^)]*(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[^)]*\d{4}[^)]*\)', '', name, flags=re.IGNORECASE)
         name = re.sub(r'\s*\(\d{4}\)', '', name)
-        # "2024-01-15" or "2024.01.15" format
+        
+        # Radio recording format: "(YYYY-MM-DD HH.MM.SS Day)" after underscores become spaces
+        # Must come BEFORE the simpler YYYY-MM-DD pattern to match the full thing
+        name = re.sub(r'\s*\(\d{4}-\d{2}-\d{2}\s+\d{2}\.\d{2}\.\d{2}\s+\w+\)', '', name)
+        
+        # Radio recording format: "(MM.DD.YY Day. HH:MM)" 
+        name = re.sub(r'\s*\(\d{2}\.\d{2}\.\d{2}\s+\w+\.?\s+\d{1,2}[:.]\d{2}\)', '', name)
+        
+        # "2024-01-15" or "2024.01.15" format (simpler, after more complex patterns)
         name = re.sub(r'\s*[\(\[]?\d{4}[\-\.]\d{2}[\-\.]\d{2}[\)\]]?', '', name)
         # Trailing dates like "- 2024-01-15"
         name = re.sub(r'\s*-\s*\d{4}-\d{2}-\d{2}\s*$', '', name)
+        
+        # Clean up any remaining time/day patterns like "10.58.00 Monday)"
+        name = re.sub(r'\s+\d{2}\.\d{2}\.\d{2}\s+\w+\)?', '', name)
         
         # Remove month+year patterns like "January 2006 Mix" or "July 2005 Mix"
         name = re.sub(r'\s*(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{4}\s*(mix)?\s*', ' ', name, flags=re.IGNORECASE)
@@ -437,71 +448,109 @@ async def detect_series(min_tracks: int = Query(2, description="Minimum tracks t
                     })
         
         return sorted(series_list, key=lambda x: -x['track_count'])
-        # Build query with duration filter
-        query = select(Track)
+
+
+@router.get("/series/tagged")
+async def get_tagged_series(min_tracks: int = Query(2, description="Minimum tracks to form a series")):
+    """Get series that have already been tagged (series_tagged=True)"""
+    import re
+    from collections import defaultdict
+    
+    # Get minimum duration filter
+    min_duration = get_min_duration_seconds()
+    
+    def clean_filename(filename: str) -> str:
+        """Clean filename for comparison"""
+        name = re.sub(r'\.(mp3|flac|wav|m4a|aac|ogg)$', '', filename, flags=re.IGNORECASE)
+        name = re.sub(r'_', ' ', name)
+        name = re.sub(r'\s+', ' ', name).strip()
+        return name
+    
+    def extract_series_name(filename: str) -> tuple:
+        """Extract potential series name and episode number from filename"""
+        name = clean_filename(filename)
+        episode = None
+        
+        # Remove date patterns
+        name = re.sub(r'\s*\([^)]*(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[^)]*\d{4}[^)]*\)', '', name, flags=re.IGNORECASE)
+        name = re.sub(r'\s*\(\d{4}\)', '', name)
+        name = re.sub(r'\s*\(\d{4}-\d{2}-\d{2}\s+\d{2}\.\d{2}\.\d{2}\s+\w+\)', '', name)
+        name = re.sub(r'\s*\(\d{2}\.\d{2}\.\d{2}\s+\w+\.?\s+\d{1,2}[:.]\d{2}\)', '', name)
+        name = re.sub(r'\s*[\(\[]?\d{4}[\-\.]\d{2}[\-\.]\d{2}[\)\]]?', '', name)
+        name = re.sub(r'\s*-\s*\d{4}-\d{2}-\d{2}\s*$', '', name)
+        name = re.sub(r'\s+\d{2}\.\d{2}\.\d{2}\s+\w+\)?', '', name)
+        name = re.sub(r'\s*(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{4}\s*(mix)?\s*', ' ', name, flags=re.IGNORECASE)
+        name = re.sub(r'\s*part\s*\d+\s*$', '', name, flags=re.IGNORECASE)
+        
+        ep_match = re.search(r'\s+(\d{2,4})\s*$', name)
+        if ep_match:
+            episode = ep_match.group(1)
+            name = name[:ep_match.start()].strip()
+        
+        if not episode:
+            ep_match = re.search(r'[\s\-_]*(episode|ep\.?|#)\s*(\d{1,4})', name, re.IGNORECASE)
+            if ep_match:
+                episode = ep_match.group(2)
+                name = name[:ep_match.start()].strip()
+        
+        name = re.sub(r'^\d{1,2}[\s\-_]+', '', name)
+        name = re.sub(r'[\s\-_]+$', '', name)
+        
+        normalized = re.sub(r'[^\w\s]', '', name.lower())
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+        
+        return name, normalized, episode
+    
+    async with get_db() as db:
+        # Get only already-tagged tracks
+        query = select(Track).where(Track.series_tagged == True)
         if min_duration > 0:
             query = query.where(Track.duration >= min_duration)
         
         result = await db.execute(query)
         tracks = result.scalars().all()
         
-        # Group tracks by normalized series name
-        series_groups = defaultdict(list)
+        # Group by album + artist combination (since they're already tagged)
+        album_artist_groups = defaultdict(list)
         
         for track in tracks:
+            album_key = track.matched_album or track.album or 'Unknown'
+            artist_key = track.matched_artist or track.artist or 'Unknown'
+            # Create composite key for album + artist
+            group_key = (album_key, artist_key)
             display_name, normalized, episode = extract_series_name(track.filename)
             
-            if normalized and len(normalized) > 3:  # Skip very short names
-                series_groups[normalized].append({
-                    'track_id': track.id,
-                    'filename': track.filename,
-                    'display_name': display_name,
-                    'current_album': track.album,
-                    'matched_album': track.matched_album,
-                    'current_artist': track.artist,
-                    'episode': episode,
-                })
+            album_artist_groups[group_key].append({
+                'track_id': track.id,
+                'filename': track.filename,
+                'display_name': display_name,
+                'current_album': track.album,
+                'matched_album': track.matched_album,
+                'current_artist': track.artist,
+                'matched_artist': track.matched_artist,
+                'episode': episode,
+                'directory': track.directory,
+            })
         
-        # Filter to only groups with multiple tracks (actual series)
+        # Build series list
         series_list = []
-        for normalized, track_list in series_groups.items():
+        for (album_name, artist_name), track_list in album_artist_groups.items():
             if len(track_list) >= min_tracks:
-                # Get the best display name (most common or use common prefix)
-                display_names = [t['display_name'] for t in track_list]
-                
-                # Try to find a good series name
-                # Count occurrences of each display name
-                name_counts = defaultdict(int)
-                for n in display_names:
-                    name_counts[n] += 1
-                
-                # Use most common name, or find common prefix if all different
-                if max(name_counts.values()) > 1:
-                    series_name = max(name_counts.keys(), key=lambda x: name_counts[x])
+                # Display name shows both album and artist if they differ
+                if artist_name and artist_name != 'Unknown' and artist_name != 'Various':
+                    display_name = f"{album_name} ({artist_name})"
                 else:
-                    series_name = find_common_prefix(display_names)
-                
-                # Get most common artist
-                artists = [t['current_artist'] for t in track_list if t['current_artist']]
-                artist_counts = defaultdict(int)
-                for a in artists:
-                    artist_counts[a] += 1
-                suggested_artist = max(artist_counts.keys(), key=lambda x: artist_counts[x]) if artist_counts else 'Various'
-                
-                # Prepare track list with suggested values
-                for t in track_list:
-                    t['suggested_album'] = series_name
-                    t['suggested_artist'] = suggested_artist
+                    display_name = album_name
                 
                 series_list.append({
-                    'series_name': series_name,
+                    'series_name': display_name,
                     'track_count': len(track_list),
                     'tracks': sorted(track_list, key=lambda x: (int(x['episode']) if x['episode'] and x['episode'].isdigit() else 0, x['filename'])),
-                    'suggested_album': series_name,
-                    'suggested_artist': suggested_artist
+                    'suggested_album': album_name,
+                    'suggested_artist': artist_name,
+                    'is_tagged': True
                 })
         
-        # Sort by track count (most tracks first)
         return sorted(series_list, key=lambda x: -x['track_count'])
 
 
@@ -511,50 +560,172 @@ async def apply_series_album_endpoint(
     album: str = Query(..., description="Album name to apply"),
     artist: Optional[str] = Query(None, description="Artist name to apply")
 ):
-    """Apply album (and optionally artist) to multiple tracks and write to files immediately"""
+    """Apply album (and optionally artist) to multiple tracks and write to files immediately.
+    Only updates database if file write succeeds to keep them in sync."""
     from backend.services.tagger import AudioTagger
     
     tagger = AudioTagger()
-    updated = 0
     written = 0
-    tracks_to_write = []
+    errors = []
+    successful_track_ids = []
     
-    # First, update database records
+    # Build track info list first
+    tracks_to_process = []
     async with get_db() as db:
         for track_id in track_ids:
             result = await db.execute(select(Track).where(Track.id == track_id))
             track = result.scalar_one_or_none()
-            
             if track:
-                # Update matched fields
-                track.matched_album = album
-                track.album = album  # Also update current
-                if artist:
-                    track.matched_artist = artist
-                    track.artist = artist
-                if track.status == "pending":
-                    track.status = "matched"
+                tracks_to_process.append({
+                    'track_id': track.id,
+                    'filepath': track.filepath,
+                    'filename': track.filename
+                })
+    
+    # Try to write to each file first
+    for track_info in tracks_to_process:
+        try:
+            success = await tagger.write_album_artist(track_info['filepath'], album, artist)
+            if success:
+                written += 1
+                successful_track_ids.append(track_info['track_id'])
+            else:
+                errors.append({'filename': track_info['filename'], 'error': 'Write failed'})
+        except PermissionError:
+            errors.append({'filename': track_info['filename'], 'error': 'Permission denied - check file/folder permissions'})
+            logger.error(f"Permission denied writing tags to {track_info['filepath']}")
+        except Exception as e:
+            error_msg = str(e)
+            errors.append({'filename': track_info['filename'], 'error': error_msg})
+            logger.error(f"Failed to write tags to {track_info['filepath']}: {e}")
+    
+    # Only update database for tracks where file write succeeded
+    updated = 0
+    if successful_track_ids:
+        async with get_db() as db:
+            for track_id in successful_track_ids:
+                result = await db.execute(select(Track).where(Track.id == track_id))
+                track = result.scalar_one_or_none()
                 
-                # Mark as series tagged so it doesn't show up again
-                track.series_tagged = True
-                updated += 1
+                if track:
+                    track.matched_album = album
+                    track.album = album
+                    if artist:
+                        track.matched_artist = artist
+                        track.artist = artist
+                    if track.status == "pending":
+                        track.status = "matched"
+                    track.series_tagged = True
+                    updated += 1
+            
+            await db.commit()
+    
+    # Build response message
+    if errors:
+        if written > 0:
+            message = f"Tagged {written} tracks successfully. {len(errors)} failed (not updated in database)."
+        else:
+            message = f"Failed to tag any tracks. {len(errors)} errors occurred."
+    else:
+        message = f"Successfully tagged {updated} tracks"
+    
+    return {
+        "message": message, 
+        "updated": updated,
+        "written": written,
+        "errors": errors,
+        "total_files": len(tracks_to_process)
+    }
+
+
+@router.post("/resync")
+async def resync_database():
+    """Re-read file tags and update database to match actual file contents.
+    This fixes any db/file mismatches by reading the actual tags from files."""
+    from backend.services.tagger import AudioTagger
+    from mutagen import File as MutagenFile
+    from mutagen.easyid3 import EasyID3
+    from mutagen.mp4 import MP4
+    from mutagen.flac import FLAC
+    
+    tagger = AudioTagger()
+    updated = 0
+    errors = []
+    checked = 0
+    
+    async with get_db() as db:
+        result = await db.execute(select(Track))
+        tracks = result.scalars().all()
+        
+        for track in tracks:
+            checked += 1
+            try:
+                if not os.path.exists(track.filepath):
+                    errors.append({'filename': track.filename, 'error': 'File not found'})
+                    continue
                 
-                # Save filepath for file writing later
-                tracks_to_write.append(track.filepath)
+                # Read actual tags from file
+                audio = MutagenFile(track.filepath, easy=True)
+                if audio is None:
+                    continue
+                
+                file_album = None
+                file_artist = None
+                file_title = None
+                
+                # Handle different formats
+                if isinstance(audio, MP4):
+                    file_album = audio.tags.get('\xa9alb', [None])[0] if audio.tags else None
+                    file_artist = audio.tags.get('\xa9ART', [None])[0] if audio.tags else None
+                    file_title = audio.tags.get('\xa9nam', [None])[0] if audio.tags else None
+                elif hasattr(audio, 'get'):
+                    file_album = audio.get('album', [None])[0] if audio.get('album') else None
+                    file_artist = audio.get('artist', [None])[0] if audio.get('artist') else None
+                    file_title = audio.get('title', [None])[0] if audio.get('title') else None
+                
+                # Check if db is out of sync with file
+                needs_update = False
+                
+                # If file has tags that differ from DB, update DB to match file
+                if file_album and track.album != file_album:
+                    track.album = file_album
+                    track.matched_album = file_album
+                    needs_update = True
+                
+                if file_artist and track.artist != file_artist:
+                    track.artist = file_artist
+                    track.matched_artist = file_artist
+                    needs_update = True
+                    
+                if file_title and track.title != file_title:
+                    track.title = file_title
+                    track.matched_title = file_title
+                    needs_update = True
+                
+                # If file has album tag, mark as series_tagged
+                # If file has NO album tag, clear series_tagged
+                if file_album:
+                    if not track.series_tagged:
+                        track.series_tagged = True
+                        needs_update = True
+                else:
+                    if track.series_tagged:
+                        track.series_tagged = False
+                        track.matched_album = None
+                        needs_update = True
+                
+                if needs_update:
+                    updated += 1
+                    
+            except Exception as e:
+                errors.append({'filename': track.filename, 'error': str(e)})
+                logger.error(f"Error resyncing {track.filepath}: {e}")
         
         await db.commit()
     
-    # Now write to files outside of db transaction to avoid locking
-    for filepath in tracks_to_write:
-        try:
-            success = await tagger.write_album_artist(filepath, album, artist)
-            if success:
-                written += 1
-        except Exception as e:
-            logger.error(f"Failed to write tags to {filepath}: {e}")
-    
     return {
-        "message": f"Updated {updated} tracks, wrote tags to {written} files", 
+        "message": f"Resynced {updated} tracks out of {checked} checked",
+        "checked": checked,
         "updated": updated,
-        "written": written
+        "errors": errors
     }
