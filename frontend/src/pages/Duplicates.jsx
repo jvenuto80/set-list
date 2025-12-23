@@ -581,20 +581,22 @@ function Duplicates() {
                             </div>
                           </div>
                           
-                          {/* Delete Button - only for duplicates (not the first/largest) */}
-                          {trackIdx > 0 && (
-                            <button
-                              onClick={() => setDeleteConfirm({
-                                trackId: track.id,
-                                filename: track.filename,
-                                filepath: track.filepath
-                              })}
-                              className="px-3 py-2 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded-lg transition-colors flex items-center gap-2"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                              Delete
-                            </button>
-                          )}
+                          {/* Delete Button - available for any track */}
+                          <button
+                            onClick={() => setDeleteConfirm({
+                              trackId: track.id,
+                              filename: track.filename,
+                              filepath: track.filepath
+                            })}
+                            className={`px-3 py-2 rounded-lg transition-colors flex items-center gap-2 ${
+                              trackIdx === 0 
+                                ? 'bg-gray-700 hover:bg-red-600/50 text-gray-400 hover:text-white'
+                                : 'bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white'
+                            }`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            Delete
+                          </button>
                         </div>
 
                         {/* Audio Player with Waveform */}
