@@ -1,6 +1,6 @@
 {
   "name": "setlist-frontend",
-  "version": "0.7.0-alpha",
+  "version": "1.0.0-beta",
   "private": true,
   "type": "module",
   "scripts": {

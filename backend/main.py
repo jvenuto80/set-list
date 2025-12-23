@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import os
 
-from backend.api import tracks, scan, settings, match, tags
+from backend.api import tracks, scan, settings, match, tags, fingerprint
 from backend.services.database import init_db
 from backend.config import settings as app_settings
 from loguru import logger
@@ -72,12 +72,13 @@ app.include_router(scan.router, prefix="/api/scan", tags=["scan"])
 app.include_router(match.router, prefix="/api/match", tags=["match"])
 app.include_router(tags.router, prefix="/api/tags", tags=["tags"])
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
+app.include_router(fingerprint.router, prefix="/api", tags=["fingerprint"])
 
 
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint"""
-    return {"status": "healthy", "version": "0.7.0-alpha"}
+    return {"status": "healthy", "version": "1.0.0-beta"}
 
 
 @app.get("/api")
@@ -86,5 +87,5 @@ async def api_root():
     return {
         "message": "SetList API",
         "docs": "/docs",
-        "version": "0.7.0-alpha"
+        "version": "1.0.0-beta"
     }

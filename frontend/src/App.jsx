@@ -5,6 +5,7 @@ import Tracks from './pages/Tracks'
 import TrackDetail from './pages/TrackDetail'
 import Scan from './pages/Scan'
 import Series from './pages/Series'
+import Duplicates from './pages/Duplicates'
 import Settings from './pages/Settings'
 import { JobProvider } from './contexts/JobContext'
 import { AudioProvider } from './contexts/AudioContext'
@@ -20,6 +21,7 @@ function App() {
             <Route path="/tracks/:id" element={<TrackDetail />} />
             <Route path="/scan" element={<Scan />} />
             <Route path="/series" element={<Series />} />
+            <Route path="/duplicates" element={<Duplicates />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </Layout>

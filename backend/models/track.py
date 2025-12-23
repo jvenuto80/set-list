@@ -52,6 +52,9 @@ class Track(Base):
     error_message = Column(Text, nullable=True)
     series_tagged = Column(Boolean, default=False)  # True if tagged via Series page
     
+    # Audio fingerprint for duplicate detection
+    fingerprint_hash = Column(String(32), nullable=True, index=True)
+    
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -142,6 +145,7 @@ class TrackResponse(BaseModel):
     # Status
     status: str
     error_message: Optional[str] = None
+    fingerprint_hash: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     tagged_at: Optional[datetime] = None

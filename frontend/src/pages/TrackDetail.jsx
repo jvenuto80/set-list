@@ -17,7 +17,8 @@ import {
   Image,
   RefreshCw,
   Play,
-  Pause
+  Pause,
+  Fingerprint
 } from 'lucide-react'
 import { 
   getTrack, 
@@ -28,7 +29,9 @@ import {
   applyTags,
   renameTrack,
   searchCoverArt,
-  updateTrackCover
+  updateTrackCover,
+  identifyTrack,
+  applyIdentification
 } from '../api'
 import ProgressButton from '../components/ProgressButton'
 import AudioPlayer from '../components/AudioPlayer'
@@ -215,6 +218,33 @@ function TrackDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries(['track', id])
       setShowCoverOptions(false)
+    },
+  })
+
+  const [identifyResult, setIdentifyResult] = useState(null)
+  
+  const identifyMutation = useMutation({
+    mutationFn: () => identifyTrack(id),
+    onSuccess: (data) => {
+      setIdentifyResult(data)
+      if (data.success && data.result) {
+        // Update matched metadata
+        queryClient.invalidateQueries(['track', id])
+      }
+    },
+    onError: (error) => {
+      setIdentifyResult({ 
+        success: false, 
+        message: error.response?.data?.detail || 'Identification failed' 
+      })
+    }
+  })
+
+  const applyIdentifyMutation = useMutation({
+    mutationFn: (metadata) => applyIdentification(id, metadata),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['track', id])
+      setIdentifyResult(null)
     },
   })
 
@@ -449,16 +479,118 @@ function TrackDetail() {
           <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold">Match Results</h2>
-              <ProgressButton
-                onClick={() => matchMutation.mutate()}
-                isLoading={isSearching}
-                loadingText="Searching..."
-                icon={<Search className="w-4 h-4" />}
-                variant="primary"
-              >
-                Search Again
-              </ProgressButton>
+              <div className="flex gap-2">
+                <ProgressButton
+                  onClick={() => identifyMutation.mutate()}
+                  isLoading={identifyMutation.isPending}
+                  loadingText="Identifying..."
+                  icon={<Fingerprint className="w-4 h-4" />}
+                  variant="secondary"
+                  title="Identify track using audio fingerprint (AcoustID)"
+                >
+                  Identify Audio
+                </ProgressButton>
+                <ProgressButton
+                  onClick={() => matchMutation.mutate()}
+                  isLoading={isSearching}
+                  loadingText="Searching..."
+                  icon={<Search className="w-4 h-4" />}
+                  variant="primary"
+                >
+                  Search Again
+                </ProgressButton>
+              </div>
             </div>
+
+            {/* AcoustID Identification Result */}
+            {identifyResult && (
+              <div className={`mb-4 p-4 rounded-lg border ${
+                identifyResult.success 
+                  ? 'bg-green-900/20 border-green-700' 
+                  : 'bg-yellow-900/20 border-yellow-700'
+              }`}>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Fingerprint className={`w-4 h-4 ${identifyResult.success ? 'text-green-400' : 'text-yellow-400'}`} />
+                      <span className="font-medium">
+                        {identifyResult.success ? 'Match Found via Audio Fingerprint' : 'No Match Found'}
+                      </span>
+                    </div>
+                    {identifyResult.result ? (
+                      <div className="text-sm space-y-1">
+                        <p><span className="text-gray-400">Artist:</span> {identifyResult.result.artist || 'Unknown'}</p>
+                        <p><span className="text-gray-400">Title:</span> {identifyResult.result.title || 'Unknown'}</p>
+                        {identifyResult.result.album && (
+                          <p><span className="text-gray-400">Album:</span> {identifyResult.result.album}</p>
+                        )}
+                        {identifyResult.result.year && (
+                          <p><span className="text-gray-400">Year:</span> {identifyResult.result.year}</p>
+                        )}
+                        <p className="text-gray-500">
+                          Confidence: {(identifyResult.result.score * 100).toFixed(0)}%
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-400">{identifyResult.message}</p>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    {identifyResult.success && identifyResult.result && (
+                      <button
+                        onClick={() => applyIdentifyMutation.mutate(identifyResult.result)}
+                        className="px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded text-sm flex items-center gap-1"
+                      >
+                        <Check className="w-4 h-4" />
+                        Apply
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setIdentifyResult(null)}
+                      className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                
+                {/* Alternative matches from AcoustID */}
+                {identifyResult.result?.alternatives?.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-gray-700">
+                    <p className="text-xs text-gray-500 mb-2">
+                      Wrong match? Other possibilities ({identifyResult.result.alternatives.length}):
+                    </p>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {identifyResult.result.alternatives.map((alt, idx) => (
+                        <div 
+                          key={idx}
+                          className="flex items-center justify-between text-sm p-2 bg-gray-800/50 rounded hover:bg-gray-700/50 cursor-pointer"
+                          onClick={() => {
+                            // Replace the result with this alternative
+                            setIdentifyResult({
+                              ...identifyResult,
+                              result: {
+                                ...alt,
+                                score: identifyResult.result.score,
+                                alternatives: [
+                                  identifyResult.result,
+                                  ...identifyResult.result.alternatives.filter((_, i) => i !== idx)
+                                ]
+                              }
+                            })
+                          }}
+                        >
+                          <span className="truncate">
+                            {alt.artist || 'Unknown'} - {alt.title || 'Unknown'}
+                          </span>
+                          <span className="text-xs text-gray-500 ml-2 shrink-0">Select</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {matches?.length > 0 ? (
               <div className="space-y-3">

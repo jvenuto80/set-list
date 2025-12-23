@@ -15,9 +15,12 @@ import {
   FileText,
   Settings as SettingsIcon,
   Download,
-  Filter
+  Filter,
+  Fingerprint,
+  Eye,
+  EyeOff
 } from 'lucide-react'
-import { getSettings, updateSettings, listDirectories, resyncDatabase, backfillSeriesMarkers, getLogs, clearLogs } from '../api'
+import { getSettings, updateSettings, listDirectories, resyncDatabase, backfillSeriesMarkers, getLogs, clearLogs, getFingerprintStatus } from '../api'
 import ProgressButton from '../components/ProgressButton'
 
 function DirectoryBrowser({ currentPath, onSelect }) {
@@ -67,12 +70,19 @@ function Settings() {
   const [browsingIndex, setBrowsingIndex] = useState(0)  // Which directory we're browsing for
   const [resyncResult, setResyncResult] = useState(null)
   const [backfillResult, setBackfillResult] = useState(null)
+  const [showApiKey, setShowApiKey] = useState(false)
   const [logLevel, setLogLevel] = useState('')
   const logContainerRef = useRef(null)
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ['settings'],
     queryFn: getSettings,
+  })
+
+  const { data: fpStatus } = useQuery({
+    queryKey: ['fingerprintStatus'],
+    queryFn: getFingerprintStatus,
+    refetchInterval: 10000, // Refresh every 10s
   })
 
   const [formData, setFormData] = useState(null)
@@ -85,6 +95,7 @@ function Settings() {
       fuzzy_threshold: settings.fuzzy_threshold,
       tracklists_delay: settings.tracklists_delay,
       min_duration_minutes: settings.min_duration_minutes || 0,
+      acoustid_api_key: settings.acoustid_api_key || '',
     })
   }
 
@@ -153,6 +164,7 @@ function Settings() {
       fuzzy_threshold: parseInt(formData.fuzzy_threshold),
       tracklists_delay: parseFloat(formData.tracklists_delay),
       min_duration_minutes: parseInt(formData.min_duration_minutes) || 0,
+      acoustid_api_key: formData.acoustid_api_key || '',
     }
     
     updateMutation.mutate(updates)
@@ -413,6 +425,79 @@ function Settings() {
           </div>
         </div>
 
+        {/* Audio Fingerprinting / AcoustID */}
+        <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+          <div className="flex items-center gap-3 mb-4">
+            <Fingerprint className="w-5 h-5 text-purple-500" />
+            <h2 className="text-lg font-semibold">Audio Fingerprinting</h2>
+          </div>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">
+                AcoustID API Key
+              </label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type={showApiKey ? 'text' : 'password'}
+                    value={formData.acoustid_api_key}
+                    onChange={(e) => setFormData({ ...formData, acoustid_api_key: e.target.value })}
+                    placeholder="Enter your AcoustID API key"
+                    className="w-full px-4 py-2 pr-10 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:border-primary-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300"
+                  >
+                    {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+              <p className="text-sm text-gray-500 mt-1">
+                Get a free <strong className="text-gray-400">Developer API key</strong> from{' '}
+                <a 
+                  href="https://acoustid.org/new-application" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-primary-400 hover:underline"
+                >
+                  acoustid.org/new-application
+                </a>
+                {' '}to enable track identification. Sign in and register a new application to get your key.
+              </p>
+            </div>
+
+            {/* Fingerprint Status */}
+            {fpStatus && (
+              <div className="bg-gray-700/50 rounded-lg p-4">
+                <h3 className="text-sm font-medium mb-2">Status</h3>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-400">Chromaprint:</span>{' '}
+                    <span className={fpStatus.fpcalc_available ? 'text-green-400' : 'text-red-400'}>
+                      {fpStatus.fpcalc_available ? '✓ Available' : '✗ Not found'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400">AcoustID API:</span>{' '}
+                    <span className={fpStatus.acoustid_configured ? 'text-green-400' : 'text-yellow-400'}>
+                      {fpStatus.acoustid_configured ? '✓ Configured' : '○ Not configured'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400">Fingerprinted:</span>{' '}
+                    <span className="text-gray-200">
+                      {fpStatus.fingerprinted_tracks} / {fpStatus.total_tracks} tracks
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Save Button */}
         <div className="flex gap-4">
           <ProgressButton
@@ -433,6 +518,7 @@ function Settings() {
               fuzzy_threshold: settings.fuzzy_threshold,
               tracklists_delay: settings.tracklists_delay,
               min_duration_minutes: settings.min_duration_minutes || 0,
+              acoustid_api_key: settings.acoustid_api_key || '',
             })}
             className="px-6 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg flex items-center gap-2"
           >

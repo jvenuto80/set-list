@@ -5,7 +5,8 @@ import {
   FolderSearch, 
   Settings, 
   Disc3,
-  Radio
+  Radio,
+  Copy
 } from 'lucide-react'
 
 const navItems = [
@@ -13,6 +14,7 @@ const navItems = [
   { path: '/tracks', icon: Music, label: 'Tracks' },
   { path: '/scan', icon: FolderSearch, label: 'Scan' },
   { path: '/series', icon: Radio, label: 'Series' },
+  { path: '/duplicates', icon: Copy, label: 'Duplicates' },
   { path: '/settings', icon: Settings, label: 'Settings' },
 ]
 
@@ -57,7 +59,7 @@ function Layout({ children }) {
         
         <div className="p-4 border-t border-gray-700">
           <div className="text-xs text-gray-500 text-center">
-            SetList v0.7.0 alpha
+            SetList v1.0 beta
           </div>
         </div>
       </aside>

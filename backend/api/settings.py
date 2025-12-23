@@ -20,6 +20,7 @@ class AppSettings(BaseModel):
     fuzzy_threshold: int
     tracklists_delay: float
     min_duration_minutes: int
+    acoustid_api_key: str = ""
 
 
 class SettingsUpdate(BaseModel):
@@ -30,6 +31,7 @@ class SettingsUpdate(BaseModel):
     fuzzy_threshold: int | None = None
     tracklists_delay: float | None = None
     min_duration_minutes: int | None = None
+    acoustid_api_key: str | None = None
 
 
 def get_settings_file():
@@ -73,7 +75,8 @@ async def get_settings():
         scan_extensions=saved.get("scan_extensions", settings.scan_extensions),
         fuzzy_threshold=saved.get("fuzzy_threshold", settings.fuzzy_threshold),
         tracklists_delay=saved.get("tracklists_delay", settings.tracklists_delay),
-        min_duration_minutes=saved.get("min_duration_minutes", settings.min_duration_minutes)
+        min_duration_minutes=saved.get("min_duration_minutes", settings.min_duration_minutes),
+        acoustid_api_key=saved.get("acoustid_api_key", settings.acoustid_api_key)
     )
 
 

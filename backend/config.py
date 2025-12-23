@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # Filter settings
     min_duration_minutes: int = 0  # Minimum track duration in minutes (0 = no filter)
     
+    # AcoustID API key for audio fingerprint identification
+    acoustid_api_key: str = ""
+    
     class Config:
         env_prefix = ""
         case_sensitive = False

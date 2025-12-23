@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from typing import List, Optional
 from backend.services.database import get_db
 from backend.models.track import Track, TrackResponse, TrackUpdate
+from backend.config import settings
 from sqlalchemy import select, or_
 from sqlalchemy.orm import Session
 from loguru import logger
@@ -301,6 +302,62 @@ async def delete_track(track_id: int):
         await db.commit()
         
         return {"message": "Track removed from database"}
+
+
+@router.delete("/{track_id}/file")
+async def delete_track_file(track_id: int):
+    """Delete a track's file from disk AND remove from database"""
+    async with get_db() as db:
+        result = await db.execute(select(Track).where(Track.id == track_id))
+        track = result.scalar_one_or_none()
+        
+        if not track:
+            raise HTTPException(status_code=404, detail="Track not found")
+        
+        filepath = track.filepath
+        filename = track.filename
+        
+        # Security check: Ensure file is within allowed music directories
+        # Load configured scan directories from settings
+        from backend.api.settings import load_saved_settings
+        saved_settings = load_saved_settings()
+        allowed_dirs = saved_settings.get("music_dirs", [settings.MUSIC_DIR])
+        if not allowed_dirs:
+            allowed_dirs = [settings.MUSIC_DIR]
+        
+        real_filepath = os.path.realpath(filepath)
+        is_allowed = any(
+            real_filepath.startswith(os.path.realpath(allowed_dir))
+            for allowed_dir in allowed_dirs
+        )
+        
+        if not is_allowed:
+            logger.warning(f"Attempted to delete file outside allowed directories: {filepath}")
+            raise HTTPException(
+                status_code=403, 
+                detail="Cannot delete files outside the configured music directories"
+            )
+        
+        # Check if file exists
+        if not os.path.exists(filepath):
+            # File already gone, just remove from database
+            await db.delete(track)
+            await db.commit()
+            return {"message": f"File not found on disk, removed {filename} from database"}
+        
+        # Try to delete the file
+        try:
+            os.remove(filepath)
+            logger.info(f"Deleted file: {filepath}")
+        except OSError as e:
+            logger.error(f"Failed to delete file {filepath}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to delete file: {e}")
+        
+        # Remove from database
+        await db.delete(track)
+        await db.commit()
+        
+        return {"message": f"Deleted {filename}", "filepath": filepath}
 
 
 @router.get("/series/detect")

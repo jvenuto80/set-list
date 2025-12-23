@@ -33,6 +33,11 @@ export const deleteTrack = async (id) => {
   return data
 }
 
+export const deleteTrackFile = async (id) => {
+  const { data } = await api.delete(`/tracks/${id}/file`)
+  return data
+}
+
 export const getTrackStats = async () => {
   const { data } = await api.get('/tracks/stats')
   return data
@@ -216,6 +221,42 @@ export const getLogs = async (lines = 200, level = null) => {
 
 export const clearLogs = async () => {
   const { data } = await api.delete('/settings/logs')
+  return data
+}
+
+// Fingerprinting
+export const getFingerprintStatus = async () => {
+  const { data } = await api.get('/fingerprint/status')
+  return data
+}
+
+export const identifyTrack = async (trackId) => {
+  const { data } = await api.post('/fingerprint/identify', { track_id: trackId })
+  return data
+}
+
+export const applyIdentification = async (trackId, metadata) => {
+  const { data } = await api.post(`/fingerprint/identify/${trackId}/apply`, metadata)
+  return data
+}
+
+export const generateFingerprints = async (overwrite = false, workers = 4) => {
+  const { data } = await api.post('/fingerprint/generate', null, { params: { overwrite, workers } })
+  return data
+}
+
+export const stopFingerprints = async () => {
+  const { data } = await api.post('/fingerprint/stop')
+  return data
+}
+
+export const generateSingleFingerprint = async (trackId) => {
+  const { data } = await api.post(`/fingerprint/generate/${trackId}`)
+  return data
+}
+
+export const getDuplicates = async () => {
+  const { data } = await api.get('/fingerprint/duplicates')
   return data
 }
 

@@ -36,6 +36,11 @@ Configure scan settings, matching thresholds, and manage your database.
 
 ![Settings](docs/settings.png)
 
+### Duplicates
+Detect and manage duplicate audio files using audio fingerprinting.
+
+![Duplicates](docs/duplicates.png)
+
 ## Features
 
 - 🎵 **Automatic Scanning**: Scans directories for audio files (MP3, FLAC, WAV, M4A, AAC, OGG)
@@ -49,7 +54,7 @@ Configure scan settings, matching thresholds, and manage your database.
 - ✏️ **Manual Editing**: Edit metadata manually when automatic matching isn't accurate
 - 📁 **Smart Renaming**: Batch rename files using customizable patterns
 - 📻 **Series Detection**: Automatically groups radio shows and podcast episodes
-- 🤖 **AI-Ready**: Architecture prepared for future AI-based matching (audio fingerprinting, etc.)
+- 🤖 **Audio Fingerprinting**: Identify unknown tracks using AcoustID and detect duplicates
 
 ## Installation on Unraid
 
@@ -239,6 +244,16 @@ setlist/
 
 ## Changelog
 
+### v1.0.0-beta
+- 🔊 **Audio Fingerprinting**: Identify unknown tracks using AcoustID/Chromaprint
+- 🔎 **Duplicate Detection**: Find duplicate files in your library based on audio fingerprint
+- 📋 **Duplicates Page**: Dedicated page with audio waveforms to compare and safely delete duplicates
+- 🗑️ **Safe File Deletion**: Delete duplicate files with confirmation modal
+- 🆔 **Identify Audio Button**: One-click track identification on the track detail page
+- ⚙️ **AcoustID Integration**: Free API for music identification (just add your Developer API key)
+- 📊 **Fingerprint Status**: See how many tracks have been fingerprinted
+- 🗃️ **Database Migration**: Automatic schema updates for new features
+
 ### v0.7.0-alpha
 - ✨ **Audio Player with Waveform**: Play tracks directly in the browser with real-time waveform visualization
 - 🎵 **MusicBrainz Integration**: Search and identify CD albums using MusicBrainz/CDDB database
@@ -296,7 +311,7 @@ setlist/
 
 ## Future Enhancements
 
-- [ ] Audio fingerprinting (AcoustID/Shazam-style matching)
+- [x] ~~Audio fingerprinting (AcoustID/Shazam-style matching)~~ ✅ Added in v0.8.0
 - [ ] AI-powered metadata extraction
 - [ ] Spotify/Beatport integration
 - [ ] Cue file generation
