@@ -248,11 +248,51 @@ setlist/
 - ➕ **Alternative Series Matches**: View and select from multiple potential series matches with confidence scores
 - ❌ **Remove from Series**: Easily remove tracks that were incorrectly added to a series
 - 🔧 **Toast Notifications Fix**: Close button on notifications now works correctly
+- 🏷️ **Renamed to SetList**: App rebranded from "DJ Set Tagger" to "SetList"
 
 ### v0.6.5-alpha
-- Series marker persistence improvements
-- Orphan track detection and re-evaluation
-- Cover art search enhancements
+- 📝 **Series Marker Persistence**: Series markers now saved to file metadata for portability
+- 🔍 **Orphan Track Detection**: Find tracks that match existing series but weren't tagged
+- 🔄 **Re-evaluate Button**: Rescan library to find new orphan tracks
+- 🖼️ **Cover Art Search Fixes**: Resolved 422 errors and improved image results
+- 🔧 **Backfill Utility**: Add series markers to previously tagged tracks
+
+### v0.6.0-alpha
+- 📻 **Series Detection**: Auto-detect podcast/radio show series from filenames
+- 🎨 **Bulk Series Tagging**: Apply album name, artist, genre, and cover art to entire series at once
+- 🖼️ **Google Image Search**: Search for cover art with 20 results in scrollable modal
+- 💾 **Job Context**: Background jobs persist across page navigation
+- 📊 **Progress Indicators**: Real-time progress that survives navigation
+- ⚡ **Performance**: Sequential file processing with 2-minute timeout for network shares
+- 🔧 **Thread Pool Execution**: Non-blocking file I/O for better responsiveness
+- 🎯 **Toast Notifications**: Success/error feedback for all operations
+
+### v0.5.0-alpha
+- 🔍 **Series Search**: Search bar to filter series by name
+- ✅ **Already Tagged Tab**: View previously tagged series grouped by album + artist
+- 🔄 **Re-tag Functionality**: Update tags on already-tagged series
+- 🔄 **Database Resync**: Sync database with actual file metadata
+- 📅 **Date Pattern Fixes**: Better extraction of recording dates from filenames
+- ⚠️ **Error Handling**: User-visible error messages for failures
+
+### v0.4.0-alpha
+- 📁 **Multiple Mount Points**: Scan music from multiple directories
+- 🔎 **DuckDuckGo Search**: Alternative tracklist search integration
+- 🖼️ **Cover Art Extraction**: Read embedded cover art from audio files
+- 📊 **Expanded Metadata**: Genre, year, BPM, key, and label fields
+- 🏷️ **Series Tagged Flag**: Prevent already-tagged tracks from reappearing
+- 🔒 **Database Locking Fixes**: Resolved issues during concurrent tag writes
+- 🎯 **Better Series Grouping**: Improved fuzzy matching for series detection
+
+### v0.1.0-alpha (Initial Release)
+- 🎵 **Audio Scanning**: Scan directories for MP3, FLAC, WAV, M4A, AAC, OGG files
+- 🔍 **1001Tracklists Matching**: Fuzzy match tracks against 1001Tracklists database
+- 📝 **Metadata Tagging**: Write artist, title, album, and cover art to files
+- 🖼️ **Cover Art Download**: Fetch and embed artwork from matched tracklists
+- 👁️ **Web Interface**: Dark-themed React UI for reviewing matches
+- ✏️ **Manual Editing**: Edit metadata when automatic matching fails
+- 📦 **Batch Operations**: Process multiple tracks at once
+- 🐳 **Docker Ready**: Full Docker and Unraid support
 
 ## Future Enhancements
 
