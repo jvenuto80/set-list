@@ -319,10 +319,10 @@ async def detect_series(
         """Clean filename for comparison"""
         # Remove file extension
         name = re.sub(r'\.(mp3|flac|wav|m4a|aac|ogg)$', '', filename, flags=re.IGNORECASE)
-        # Clean up underscores, hyphens (when used as word separators), and multiple spaces
+        # Clean up underscores and multiple spaces
         name = re.sub(r'_', ' ', name)
-        # Replace hyphens between words (but keep "word - word" style separators)
-        name = re.sub(r'(?<=\w)-(?=\w)', ' ', name)
+        # Replace hyphens between letters (word separators) but NOT between digits (dates)
+        name = re.sub(r'(?<=[a-zA-Z])-(?=[a-zA-Z])', ' ', name)
         name = re.sub(r'\s+', ' ', name).strip()
         return name
     
@@ -488,10 +488,12 @@ async def detect_series(
             })
         
         # Merge directory groups that have 2+ tracks and aren't already in series_groups
+        # Only count tracks as "existing" if they're in groups that meet min_tracks threshold
         existing_track_ids = set()
         for tracks_list in series_groups.values():
-            for t in tracks_list:
-                existing_track_ids.add(t['track_id'])
+            if len(tracks_list) >= min_tracks:
+                for t in tracks_list:
+                    existing_track_ids.add(t['track_id'])
         
         for dir_path, dir_tracks in dir_groups.items():
             if len(dir_tracks) >= min_tracks:
@@ -528,6 +530,14 @@ async def detect_series(
         # Remove merged keys
         for key in merged:
             del series_groups[key]
+        
+        # Rebuild existing_track_ids based on groups that meet min_tracks after merging
+        # Exclude directory-based groups (dir:*) from blocking orphan detection since they're less precise
+        existing_track_ids = set()
+        for norm_key, tracks_list in series_groups.items():
+            if len(tracks_list) >= min_tracks and not norm_key.startswith('dir:'):
+                for t in tracks_list:
+                    existing_track_ids.add(t['track_id'])
         
         # METHOD 4: Find orphan tracks that match existing TAGGED series
         # This helps when you add a single new file that belongs to an already-tagged series
@@ -684,6 +694,8 @@ async def get_tagged_series(min_tracks: int = Query(2, description="Minimum trac
         """Clean filename for comparison"""
         name = re.sub(r'\.(mp3|flac|wav|m4a|aac|ogg)$', '', filename, flags=re.IGNORECASE)
         name = re.sub(r'_', ' ', name)
+        # Replace hyphens between letters (word separators) but NOT between digits (dates)
+        name = re.sub(r'(?<=[a-zA-Z])-(?=[a-zA-Z])', ' ', name)
         name = re.sub(r'\s+', ' ', name).strip()
         return name
     
