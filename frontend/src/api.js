@@ -33,6 +33,11 @@ export const deleteTrack = async (id) => {
   return data
 }
 
+export const deleteTrackFile = async (id) => {
+  const { data } = await api.delete(`/tracks/${id}/file`)
+  return data
+}
+
 export const getTrackStats = async () => {
   const { data } = await api.get('/tracks/stats')
   return data

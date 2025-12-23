@@ -17,11 +17,10 @@ import {
   Download,
   Filter,
   Fingerprint,
-  Copy,
   Eye,
   EyeOff
 } from 'lucide-react'
-import { getSettings, updateSettings, listDirectories, resyncDatabase, backfillSeriesMarkers, getLogs, clearLogs, getFingerprintStatus, generateFingerprints, getDuplicates } from '../api'
+import { getSettings, updateSettings, listDirectories, resyncDatabase, backfillSeriesMarkers, getLogs, clearLogs, getFingerprintStatus } from '../api'
 import ProgressButton from '../components/ProgressButton'
 
 function DirectoryBrowser({ currentPath, onSelect }) {
@@ -71,7 +70,6 @@ function Settings() {
   const [browsingIndex, setBrowsingIndex] = useState(0)  // Which directory we're browsing for
   const [resyncResult, setResyncResult] = useState(null)
   const [backfillResult, setBackfillResult] = useState(null)
-  const [fingerprintResult, setFingerprintResult] = useState(null)
   const [showApiKey, setShowApiKey] = useState(false)
   const [logLevel, setLogLevel] = useState('')
   const logContainerRef = useRef(null)
@@ -85,12 +83,6 @@ function Settings() {
     queryKey: ['fingerprintStatus'],
     queryFn: getFingerprintStatus,
     refetchInterval: 10000, // Refresh every 10s
-  })
-
-  const { data: duplicates } = useQuery({
-    queryKey: ['duplicates'],
-    queryFn: getDuplicates,
-    enabled: fpStatus?.fingerprinted_tracks > 0,
   })
 
   const [formData, setFormData] = useState(null)
@@ -134,18 +126,6 @@ function Settings() {
     },
     onError: (error) => {
       setBackfillResult({ error: error.message || 'Backfill failed' })
-    }
-  })
-
-  const fingerprintMutation = useMutation({
-    mutationFn: (overwrite) => generateFingerprints(overwrite),
-    onSuccess: (data) => {
-      setFingerprintResult(data)
-      queryClient.invalidateQueries(['fingerprintStatus'])
-      queryClient.invalidateQueries(['duplicates'])
-    },
-    onError: (error) => {
-      setFingerprintResult({ error: error.message || 'Fingerprint generation failed' })
     }
   })
 
@@ -476,16 +456,16 @@ function Settings() {
                 </div>
               </div>
               <p className="text-sm text-gray-500 mt-1">
-                Get a free API key from{' '}
+                Get a free <strong className="text-gray-400">Developer API key</strong> from{' '}
                 <a 
                   href="https://acoustid.org/new-application" 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="text-primary-400 hover:underline"
                 >
-                  acoustid.org
+                  acoustid.org/new-application
                 </a>
-                {' '}to enable track identification.
+                {' '}to enable track identification. Sign in and register a new application to get your key.
               </p>
             </div>
 
@@ -512,80 +492,6 @@ function Settings() {
                       {fpStatus.fingerprinted_tracks} / {fpStatus.total_tracks} tracks
                     </span>
                   </div>
-                  {duplicates && duplicates.duplicate_groups.length > 0 && (
-                    <div>
-                      <span className="text-gray-400">Duplicates found:</span>{' '}
-                      <span className="text-orange-400">
-                        {duplicates.duplicate_groups.length} groups ({duplicates.total_duplicates} tracks)
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Generate Fingerprints Button */}
-            <div>
-              <p className="text-gray-400 text-sm mb-3">
-                Generate audio fingerprints for your library. This enables duplicate detection and 
-                allows identification of unknown tracks via AcoustID.
-              </p>
-              <ProgressButton
-                type="button"
-                onClick={() => fingerprintMutation.mutate(false)}
-                isLoading={fingerprintMutation.isPending}
-                loadingText="Generating fingerprints..."
-                icon={<Fingerprint className="w-4 h-4" />}
-                variant="primary"
-              >
-                Generate Fingerprints
-              </ProgressButton>
-
-              {fingerprintResult && !fingerprintResult.error && (
-                <div className="mt-3 p-3 bg-green-900/20 border border-green-700 rounded-lg text-sm">
-                  <CheckCircle2 className="w-4 h-4 inline mr-2 text-green-500" />
-                  {fingerprintResult.message}
-                </div>
-              )}
-
-              {fingerprintResult?.error && (
-                <div className="mt-3 p-3 bg-red-900/20 border border-red-700 rounded-lg text-sm">
-                  <AlertTriangle className="w-4 h-4 inline mr-2 text-red-500" />
-                  {fingerprintResult.error}
-                </div>
-              )}
-            </div>
-
-            {/* Duplicates List */}
-            {duplicates && duplicates.duplicate_groups.length > 0 && (
-              <div className="border-t border-gray-700 pt-4">
-                <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
-                  <Copy className="w-4 h-4 text-orange-500" />
-                  Duplicate Tracks Detected
-                </h3>
-                <div className="space-y-3 max-h-64 overflow-y-auto">
-                  {duplicates.duplicate_groups.slice(0, 10).map((group, idx) => (
-                    <div key={idx} className="bg-gray-700/50 rounded-lg p-3">
-                      <div className="text-xs text-gray-500 mb-2">
-                        {group.tracks.length} identical files
-                      </div>
-                      <div className="space-y-1">
-                        {group.tracks.map((track, tidx) => (
-                          <div key={tidx} className="text-sm truncate">
-                            <span className="text-gray-300">{track.filename}</span>
-                            <span className="text-gray-500 text-xs ml-2">
-                              ({(track.file_size / 1024 / 1024).toFixed(1)} MB)
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                  {duplicates.duplicate_groups.length > 10 && (
-                    <p className="text-sm text-gray-500">
-                      ... and {duplicates.duplicate_groups.length - 10} more groups
-                    </p>
-                  )}
                 </div>
               </div>
             )}

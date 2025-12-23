@@ -303,6 +303,41 @@ async def delete_track(track_id: int):
         return {"message": "Track removed from database"}
 
 
+@router.delete("/{track_id}/file")
+async def delete_track_file(track_id: int):
+    """Delete a track's file from disk AND remove from database"""
+    async with get_db() as db:
+        result = await db.execute(select(Track).where(Track.id == track_id))
+        track = result.scalar_one_or_none()
+        
+        if not track:
+            raise HTTPException(status_code=404, detail="Track not found")
+        
+        filepath = track.filepath
+        filename = track.filename
+        
+        # Check if file exists
+        if not os.path.exists(filepath):
+            # File already gone, just remove from database
+            await db.delete(track)
+            await db.commit()
+            return {"message": f"File not found on disk, removed {filename} from database"}
+        
+        # Try to delete the file
+        try:
+            os.remove(filepath)
+            logger.info(f"Deleted file: {filepath}")
+        except OSError as e:
+            logger.error(f"Failed to delete file {filepath}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to delete file: {e}")
+        
+        # Remove from database
+        await db.delete(track)
+        await db.commit()
+        
+        return {"message": f"Deleted {filename}", "filepath": filepath}
+
+
 @router.get("/series/detect")
 async def detect_series(
     min_tracks: int = Query(2, description="Minimum tracks to form a series"),

@@ -78,7 +78,7 @@ app.include_router(fingerprint.router, prefix="/api", tags=["fingerprint"])
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint"""
-    return {"status": "healthy", "version": "0.8.0-alpha"}
+    return {"status": "healthy", "version": "1.0.0-beta"}
 
 
 @app.get("/api")
@@ -87,5 +87,5 @@ async def api_root():
     return {
         "message": "SetList API",
         "docs": "/docs",
-        "version": "0.8.0-alpha"
+        "version": "1.0.0-beta"
     }
