@@ -15,9 +15,13 @@ import {
   FileText,
   Settings as SettingsIcon,
   Download,
-  Filter
+  Filter,
+  Fingerprint,
+  Copy,
+  Eye,
+  EyeOff
 } from 'lucide-react'
-import { getSettings, updateSettings, listDirectories, resyncDatabase, backfillSeriesMarkers, getLogs, clearLogs } from '../api'
+import { getSettings, updateSettings, listDirectories, resyncDatabase, backfillSeriesMarkers, getLogs, clearLogs, getFingerprintStatus, generateFingerprints, getDuplicates } from '../api'
 import ProgressButton from '../components/ProgressButton'
 
 function DirectoryBrowser({ currentPath, onSelect }) {
@@ -67,12 +71,26 @@ function Settings() {
   const [browsingIndex, setBrowsingIndex] = useState(0)  // Which directory we're browsing for
   const [resyncResult, setResyncResult] = useState(null)
   const [backfillResult, setBackfillResult] = useState(null)
+  const [fingerprintResult, setFingerprintResult] = useState(null)
+  const [showApiKey, setShowApiKey] = useState(false)
   const [logLevel, setLogLevel] = useState('')
   const logContainerRef = useRef(null)
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ['settings'],
     queryFn: getSettings,
+  })
+
+  const { data: fpStatus } = useQuery({
+    queryKey: ['fingerprintStatus'],
+    queryFn: getFingerprintStatus,
+    refetchInterval: 10000, // Refresh every 10s
+  })
+
+  const { data: duplicates } = useQuery({
+    queryKey: ['duplicates'],
+    queryFn: getDuplicates,
+    enabled: fpStatus?.fingerprinted_tracks > 0,
   })
 
   const [formData, setFormData] = useState(null)
@@ -85,6 +103,7 @@ function Settings() {
       fuzzy_threshold: settings.fuzzy_threshold,
       tracklists_delay: settings.tracklists_delay,
       min_duration_minutes: settings.min_duration_minutes || 0,
+      acoustid_api_key: settings.acoustid_api_key || '',
     })
   }
 
@@ -115,6 +134,18 @@ function Settings() {
     },
     onError: (error) => {
       setBackfillResult({ error: error.message || 'Backfill failed' })
+    }
+  })
+
+  const fingerprintMutation = useMutation({
+    mutationFn: (overwrite) => generateFingerprints(overwrite),
+    onSuccess: (data) => {
+      setFingerprintResult(data)
+      queryClient.invalidateQueries(['fingerprintStatus'])
+      queryClient.invalidateQueries(['duplicates'])
+    },
+    onError: (error) => {
+      setFingerprintResult({ error: error.message || 'Fingerprint generation failed' })
     }
   })
 
@@ -153,6 +184,7 @@ function Settings() {
       fuzzy_threshold: parseInt(formData.fuzzy_threshold),
       tracklists_delay: parseFloat(formData.tracklists_delay),
       min_duration_minutes: parseInt(formData.min_duration_minutes) || 0,
+      acoustid_api_key: formData.acoustid_api_key || '',
     }
     
     updateMutation.mutate(updates)
@@ -413,6 +445,153 @@ function Settings() {
           </div>
         </div>
 
+        {/* Audio Fingerprinting / AcoustID */}
+        <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+          <div className="flex items-center gap-3 mb-4">
+            <Fingerprint className="w-5 h-5 text-purple-500" />
+            <h2 className="text-lg font-semibold">Audio Fingerprinting</h2>
+          </div>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">
+                AcoustID API Key
+              </label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type={showApiKey ? 'text' : 'password'}
+                    value={formData.acoustid_api_key}
+                    onChange={(e) => setFormData({ ...formData, acoustid_api_key: e.target.value })}
+                    placeholder="Enter your AcoustID API key"
+                    className="w-full px-4 py-2 pr-10 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:border-primary-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300"
+                  >
+                    {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+              <p className="text-sm text-gray-500 mt-1">
+                Get a free API key from{' '}
+                <a 
+                  href="https://acoustid.org/new-application" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-primary-400 hover:underline"
+                >
+                  acoustid.org
+                </a>
+                {' '}to enable track identification.
+              </p>
+            </div>
+
+            {/* Fingerprint Status */}
+            {fpStatus && (
+              <div className="bg-gray-700/50 rounded-lg p-4">
+                <h3 className="text-sm font-medium mb-2">Status</h3>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-400">Chromaprint:</span>{' '}
+                    <span className={fpStatus.fpcalc_available ? 'text-green-400' : 'text-red-400'}>
+                      {fpStatus.fpcalc_available ? '✓ Available' : '✗ Not found'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400">AcoustID API:</span>{' '}
+                    <span className={fpStatus.acoustid_configured ? 'text-green-400' : 'text-yellow-400'}>
+                      {fpStatus.acoustid_configured ? '✓ Configured' : '○ Not configured'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400">Fingerprinted:</span>{' '}
+                    <span className="text-gray-200">
+                      {fpStatus.fingerprinted_tracks} / {fpStatus.total_tracks} tracks
+                    </span>
+                  </div>
+                  {duplicates && duplicates.duplicate_groups.length > 0 && (
+                    <div>
+                      <span className="text-gray-400">Duplicates found:</span>{' '}
+                      <span className="text-orange-400">
+                        {duplicates.duplicate_groups.length} groups ({duplicates.total_duplicates} tracks)
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Generate Fingerprints Button */}
+            <div>
+              <p className="text-gray-400 text-sm mb-3">
+                Generate audio fingerprints for your library. This enables duplicate detection and 
+                allows identification of unknown tracks via AcoustID.
+              </p>
+              <ProgressButton
+                type="button"
+                onClick={() => fingerprintMutation.mutate(false)}
+                isLoading={fingerprintMutation.isPending}
+                loadingText="Generating fingerprints..."
+                icon={<Fingerprint className="w-4 h-4" />}
+                variant="primary"
+              >
+                Generate Fingerprints
+              </ProgressButton>
+
+              {fingerprintResult && !fingerprintResult.error && (
+                <div className="mt-3 p-3 bg-green-900/20 border border-green-700 rounded-lg text-sm">
+                  <CheckCircle2 className="w-4 h-4 inline mr-2 text-green-500" />
+                  {fingerprintResult.message}
+                </div>
+              )}
+
+              {fingerprintResult?.error && (
+                <div className="mt-3 p-3 bg-red-900/20 border border-red-700 rounded-lg text-sm">
+                  <AlertTriangle className="w-4 h-4 inline mr-2 text-red-500" />
+                  {fingerprintResult.error}
+                </div>
+              )}
+            </div>
+
+            {/* Duplicates List */}
+            {duplicates && duplicates.duplicate_groups.length > 0 && (
+              <div className="border-t border-gray-700 pt-4">
+                <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
+                  <Copy className="w-4 h-4 text-orange-500" />
+                  Duplicate Tracks Detected
+                </h3>
+                <div className="space-y-3 max-h-64 overflow-y-auto">
+                  {duplicates.duplicate_groups.slice(0, 10).map((group, idx) => (
+                    <div key={idx} className="bg-gray-700/50 rounded-lg p-3">
+                      <div className="text-xs text-gray-500 mb-2">
+                        {group.tracks.length} identical files
+                      </div>
+                      <div className="space-y-1">
+                        {group.tracks.map((track, tidx) => (
+                          <div key={tidx} className="text-sm truncate">
+                            <span className="text-gray-300">{track.filename}</span>
+                            <span className="text-gray-500 text-xs ml-2">
+                              ({(track.file_size / 1024 / 1024).toFixed(1)} MB)
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  {duplicates.duplicate_groups.length > 10 && (
+                    <p className="text-sm text-gray-500">
+                      ... and {duplicates.duplicate_groups.length - 10} more groups
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Save Button */}
         <div className="flex gap-4">
           <ProgressButton
@@ -433,6 +612,7 @@ function Settings() {
               fuzzy_threshold: settings.fuzzy_threshold,
               tracklists_delay: settings.tracklists_delay,
               min_duration_minutes: settings.min_duration_minutes || 0,
+              acoustid_api_key: settings.acoustid_api_key || '',
             })}
             className="px-6 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg flex items-center gap-2"
           >

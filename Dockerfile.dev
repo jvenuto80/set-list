@@ -8,6 +8,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libmagic1 \
     curl \
+    # Chromaprint for audio fingerprinting
+    libchromaprint-tools \
     # Playwright dependencies
     libnss3 \
     libnspr4 \

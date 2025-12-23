@@ -3,6 +3,7 @@ Database service - SQLAlchemy async setup
 """
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
+from sqlalchemy import text
 from contextlib import asynccontextmanager
 from backend.config import settings
 from loguru import logger
@@ -33,6 +34,25 @@ async def init_db():
         # Create all tables
         await conn.run_sync(Base.metadata.create_all)
         logger.info("Database initialized")
+        
+        # Run migrations for new columns
+        await run_migrations(conn)
+
+
+async def run_migrations(conn):
+    """Run database migrations for new columns"""
+    # Check and add fingerprint_hash column if missing
+    try:
+        result = await conn.execute(text("PRAGMA table_info(tracks)"))
+        columns = [row[1] for row in result.fetchall()]
+        
+        if 'fingerprint_hash' not in columns:
+            await conn.execute(text(
+                "ALTER TABLE tracks ADD COLUMN fingerprint_hash VARCHAR(32)"
+            ))
+            logger.info("Added fingerprint_hash column to tracks table")
+    except Exception as e:
+        logger.warning(f"Migration check failed (may be normal): {e}")
 
 
 @asynccontextmanager

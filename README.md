@@ -49,7 +49,7 @@ Configure scan settings, matching thresholds, and manage your database.
 - ✏️ **Manual Editing**: Edit metadata manually when automatic matching isn't accurate
 - 📁 **Smart Renaming**: Batch rename files using customizable patterns
 - 📻 **Series Detection**: Automatically groups radio shows and podcast episodes
-- 🤖 **AI-Ready**: Architecture prepared for future AI-based matching (audio fingerprinting, etc.)
+- 🤖 **Audio Fingerprinting**: Identify unknown tracks using AcoustID and detect duplicates
 
 ## Installation on Unraid
 
@@ -239,6 +239,14 @@ setlist/
 
 ## Changelog
 
+### v0.8.0-alpha
+- 🔊 **Audio Fingerprinting**: Identify unknown tracks using AcoustID/Chromaprint
+- 🔎 **Duplicate Detection**: Find duplicate files in your library based on audio fingerprint
+- 🆔 **Identify Audio Button**: One-click track identification on the track detail page
+- ⚙️ **AcoustID Integration**: Free API for music identification (just add your API key)
+- 📊 **Fingerprint Status**: See how many tracks have been fingerprinted in Settings
+- 🗃️ **Database Migration**: Automatic schema updates for new features
+
 ### v0.7.0-alpha
 - ✨ **Audio Player with Waveform**: Play tracks directly in the browser with real-time waveform visualization
 - 🎵 **MusicBrainz Integration**: Search and identify CD albums using MusicBrainz/CDDB database
@@ -296,7 +304,7 @@ setlist/
 
 ## Future Enhancements
 
-- [ ] Audio fingerprinting (AcoustID/Shazam-style matching)
+- [x] ~~Audio fingerprinting (AcoustID/Shazam-style matching)~~ ✅ Added in v0.8.0
 - [ ] AI-powered metadata extraction
 - [ ] Spotify/Beatport integration
 - [ ] Cue file generation
