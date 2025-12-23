@@ -1161,3 +1161,66 @@ async def resync_database():
         "updated": updated,
         "errors": errors
     }
+
+
+@router.post("/series/backfill-markers")
+async def backfill_series_markers():
+    """
+    Backfill series markers to file metadata for all tracks that are series_tagged
+    in the database but may not have the marker written to the file.
+    
+    This is useful after upgrading to ensure existing tagged tracks will be
+    recognized on fresh installs.
+    """
+    from backend.services.tagger import AudioTagger
+    
+    tagger = AudioTagger()
+    updated = 0
+    skipped = 0
+    errors = []
+    
+    async with get_db() as db:
+        # Get all series-tagged tracks
+        result = await db.execute(
+            select(Track).where(Track.series_tagged == True)
+        )
+        tracks = result.scalars().all()
+        
+        logger.info(f"Backfilling series markers for {len(tracks)} tagged tracks")
+        
+        for track in tracks:
+            try:
+                if not os.path.exists(track.filepath):
+                    skipped += 1
+                    continue
+                
+                # Write the series marker (this will add TIT1/GROUPING tag)
+                # We pass the existing album to trigger the marker write
+                album = track.album or track.matched_album
+                if album:
+                    success = await tagger.write_album_artist(
+                        track.filepath,
+                        album=album,
+                        artist=None,
+                        genre=None,
+                        album_artist=None
+                    )
+                    if success:
+                        updated += 1
+                    else:
+                        skipped += 1
+                else:
+                    skipped += 1
+                    
+            except Exception as e:
+                errors.append({'filename': track.filename, 'error': str(e)})
+                logger.error(f"Error backfilling marker for {track.filepath}: {e}")
+    
+    logger.info(f"Backfill complete: {updated} updated, {skipped} skipped, {len(errors)} errors")
+    
+    return {
+        "message": f"Backfilled series markers for {updated} tracks",
+        "updated": updated,
+        "skipped": skipped,
+        "errors": errors
+    }

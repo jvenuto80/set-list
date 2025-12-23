@@ -17,7 +17,7 @@ import {
   Download,
   Filter
 } from 'lucide-react'
-import { getSettings, updateSettings, listDirectories, resyncDatabase, getLogs, clearLogs } from '../api'
+import { getSettings, updateSettings, listDirectories, resyncDatabase, backfillSeriesMarkers, getLogs, clearLogs } from '../api'
 import ProgressButton from '../components/ProgressButton'
 
 function DirectoryBrowser({ currentPath, onSelect }) {
@@ -66,6 +66,7 @@ function Settings() {
   const [browsingPath, setBrowsingPath] = useState('/')
   const [browsingIndex, setBrowsingIndex] = useState(0)  // Which directory we're browsing for
   const [resyncResult, setResyncResult] = useState(null)
+  const [backfillResult, setBackfillResult] = useState(null)
   const [logLevel, setLogLevel] = useState('')
   const logContainerRef = useRef(null)
 
@@ -104,6 +105,16 @@ function Settings() {
     },
     onError: (error) => {
       setResyncResult({ error: error.message || 'Resync failed' })
+    }
+  })
+
+  const backfillMutation = useMutation({
+    mutationFn: backfillSeriesMarkers,
+    onSuccess: (data) => {
+      setBackfillResult(data)
+    },
+    onError: (error) => {
+      setBackfillResult({ error: error.message || 'Backfill failed' })
     }
   })
 
@@ -498,6 +509,66 @@ function Settings() {
                           {resyncResult.errors.length > 10 && (
                             <div className="text-gray-500 text-xs">
                               ...and {resyncResult.errors.length - 10} more
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          
+          {/* Backfill Series Markers */}
+          <div className="border-t border-gray-700 pt-4 mt-4">
+            <p className="text-gray-400 text-sm mb-3">
+              Write series markers to file metadata for all tagged tracks. This ensures series 
+              tagging is preserved if you reinstall or move files to a new system.
+            </p>
+            
+            <ProgressButton
+              onClick={() => {
+                setBackfillResult(null)
+                backfillMutation.mutate()
+              }}
+              isLoading={backfillMutation.isPending}
+              loadingText="Writing series markers..."
+              icon={<Save className="w-4 h-4" />}
+              variant="primary"
+            >
+              Backfill Series Markers
+            </ProgressButton>
+          </div>
+          
+          {backfillResult && (
+            <div className={`p-4 rounded-lg ${backfillResult.error ? 'bg-red-900/50 border border-red-700' : 'bg-gray-700'}`}>
+              {backfillResult.error ? (
+                <div className="flex items-center gap-2 text-red-400">
+                  <AlertTriangle className="w-5 h-5" />
+                  <span>{backfillResult.error}</span>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-green-400">
+                    <CheckCircle2 className="w-5 h-5" />
+                    <span>{backfillResult.message}</span>
+                  </div>
+                  <div className="text-sm text-gray-400">
+                    <div>Tracks updated: {backfillResult.updated}</div>
+                    <div>Tracks skipped: {backfillResult.skipped}</div>
+                    {backfillResult.errors?.length > 0 && (
+                      <div className="mt-2">
+                        <div className="text-amber-400">Errors ({backfillResult.errors.length}):</div>
+                        <div className="max-h-32 overflow-auto mt-1">
+                          {backfillResult.errors.slice(0, 10).map((err, i) => (
+                            <div key={i} className="text-red-400 text-xs truncate">
+                              {err.filename}: {err.error}
+                            </div>
+                          ))}
+                          {backfillResult.errors.length > 10 && (
+                            <div className="text-gray-500 text-xs">
+                              ...and {backfillResult.errors.length - 10} more
                             </div>
                           )}
                         </div>

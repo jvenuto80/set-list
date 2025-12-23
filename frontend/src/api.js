@@ -178,6 +178,11 @@ export const resyncDatabase = async () => {
   return data
 }
 
+export const backfillSeriesMarkers = async () => {
+  const { data } = await api.post('/tracks/series/backfill-markers')
+  return data
+}
+
 // Logs
 export const getLogs = async (lines = 200, level = null) => {
   const params = { lines }
