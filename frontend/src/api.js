@@ -240,8 +240,13 @@ export const applyIdentification = async (trackId, metadata) => {
   return data
 }
 
-export const generateFingerprints = async (overwrite = false) => {
-  const { data } = await api.post('/fingerprint/generate', null, { params: { overwrite } })
+export const generateFingerprints = async (overwrite = false, workers = 4) => {
+  const { data } = await api.post('/fingerprint/generate', null, { params: { overwrite, workers } })
+  return data
+}
+
+export const stopFingerprints = async () => {
+  const { data } = await api.post('/fingerprint/stop')
   return data
 }
 

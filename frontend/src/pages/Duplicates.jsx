@@ -11,9 +11,12 @@ import {
   Music,
   RefreshCw,
   Fingerprint,
-  ExternalLink
+  ExternalLink,
+  Cpu,
+  Info,
+  Square
 } from 'lucide-react'
-import { getDuplicates, getFingerprintStatus, deleteTrackFile, generateFingerprints } from '../api'
+import { getDuplicates, getFingerprintStatus, deleteTrackFile, generateFingerprints, stopFingerprints } from '../api'
 import AudioPlayer from '../components/AudioPlayer'
 import ProgressButton from '../components/ProgressButton'
 
@@ -22,10 +25,13 @@ function Duplicates() {
   const [deleteConfirm, setDeleteConfirm] = useState(null) // { trackId, filename }
   const [deleteResult, setDeleteResult] = useState(null)
   const [expandedGroups, setExpandedGroups] = useState(new Set())
+  const [workers, setWorkers] = useState(8)
+  const [regenerateAll, setRegenerateAll] = useState(false)
 
-  const { data: fpStatus, isLoading: statusLoading } = useQuery({
+  const { data: fpStatus, isLoading: statusLoading, refetch: refetchStatus } = useQuery({
     queryKey: ['fingerprintStatus'],
     queryFn: getFingerprintStatus,
+    refetchInterval: (query) => query.state.data?.is_generating ? 1000 : 5000,
   })
 
   const { data: duplicates, isLoading: dupsLoading, refetch } = useQuery({
@@ -35,10 +41,21 @@ function Duplicates() {
   })
 
   const fingerprintMutation = useMutation({
-    mutationFn: () => generateFingerprints(false),
+    mutationFn: ({ workerCount, overwrite }) => generateFingerprints(overwrite, workerCount),
+    onMutate: () => {
+      // Immediately refetch to catch is_generating changing to true
+      setTimeout(() => refetchStatus(), 500)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries(['fingerprintStatus'])
       queryClient.invalidateQueries(['duplicates'])
+    }
+  })
+
+  const stopMutation = useMutation({
+    mutationFn: stopFingerprints,
+    onSuccess: () => {
+      queryClient.invalidateQueries(['fingerprintStatus'])
     }
   })
 
@@ -101,8 +118,8 @@ function Duplicates() {
     )
   }
 
-  // Not enough fingerprints yet
-  if (!fpStatus?.fingerprinted_tracks || fpStatus.fingerprinted_tracks === 0) {
+  // Not enough fingerprints yet (but not when generating - need to show stop button)
+  if ((!fpStatus?.fingerprinted_tracks || fpStatus.fingerprinted_tracks === 0) && !fpStatus?.is_generating) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -119,14 +136,42 @@ function Duplicates() {
             Generate audio fingerprints for your library to detect duplicate files.
             This analyzes the actual audio content, not just filenames.
           </p>
+          
+          {/* Workers Selector */}
+          <div className="max-w-xs mx-auto mb-6">
+            <label className="flex items-center justify-center gap-2 text-sm text-gray-400 mb-2">
+              <Cpu className="w-4 h-4" />
+              Parallel Workers
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min="1"
+                max="16"
+                value={workers}
+                onChange={(e) => setWorkers(parseInt(e.target.value))}
+                className="flex-1 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary-500"
+              />
+              <span className="w-8 text-center font-mono text-lg">{workers}</span>
+            </div>
+            <div className="flex items-start gap-2 mt-3 p-3 bg-gray-700/50 rounded-lg text-left">
+              <Info className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-gray-400">
+                More workers = faster processing but higher CPU/memory usage. 
+                <strong className="text-gray-300"> Recommended: 4-8</strong> for most systems. 
+                Use 12-16 on high-end machines.
+              </p>
+            </div>
+          </div>
+          
           <ProgressButton
-            onClick={() => fingerprintMutation.mutate()}
+            onClick={() => fingerprintMutation.mutate({ workerCount: workers, overwrite: false })}
             isLoading={fingerprintMutation.isPending}
-            loadingText="Generating fingerprints..."
+            loadingText={`Generating with ${workers} workers...`}
             icon={<Fingerprint className="w-4 h-4" />}
             variant="primary"
           >
-            Generate Fingerprints
+            Generate Fingerprints ({fpStatus?.total_tracks || 0})
           </ProgressButton>
           <p className="text-gray-500 text-sm mt-4">
             {fpStatus?.total_tracks || 0} tracks in library
@@ -140,6 +185,52 @@ function Duplicates() {
 
   return (
     <div className="space-y-6">
+      {/* Floating Progress Bar - Always visible when generating */}
+      {fpStatus?.is_generating && (
+        <div className="fixed top-0 left-64 right-0 bg-gray-900 border-b border-purple-500 p-4 z-50 shadow-lg">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <Fingerprint className="w-5 h-5 text-purple-500 animate-pulse" />
+              <span className="font-medium">Generating Fingerprints...</span>
+            </div>
+            
+            {fpStatus.generation_progress && (
+              <div className="flex-1 max-w-md">
+                <div className="flex justify-between text-sm mb-1">
+                  <span className="text-gray-400">
+                    {fpStatus.generation_progress.processed} / {fpStatus.generation_progress.total}
+                  </span>
+                  <span className="text-gray-400">
+                    {Math.round((fpStatus.generation_progress.processed / fpStatus.generation_progress.total) * 100)}%
+                  </span>
+                </div>
+                <div className="w-full bg-gray-700 rounded-full h-2">
+                  <div 
+                    className="bg-purple-500 h-2 rounded-full transition-all duration-300"
+                    style={{ 
+                      width: `${(fpStatus.generation_progress.processed / fpStatus.generation_progress.total) * 100}%` 
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+            
+            <button
+              onClick={() => stopMutation.mutate()}
+              disabled={stopMutation.isPending}
+              className="flex items-center gap-2 px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg transition-colors text-sm disabled:opacity-50"
+            >
+              {stopMutation.isPending ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <Square className="w-4 h-4" />
+              )}
+              Stop
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold flex items-center gap-3">
@@ -184,6 +275,145 @@ function Duplicates() {
           </div>
         </div>
       </div>
+
+      {/* Fingerprint Generation Panel */}
+      {(fpStatus.fingerprinted_tracks < fpStatus.total_tracks || fpStatus.is_generating || fpStatus.fingerprinted_tracks > 0) && (
+        <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+          <div className="flex items-center gap-3 mb-4">
+            <Fingerprint className="w-5 h-5 text-purple-500" />
+            <h2 className="text-lg font-semibold">Generate Fingerprints</h2>
+          </div>
+
+          {/* Fingerprint Counts */}
+          {!fpStatus.is_generating && (
+            <div className="grid grid-cols-2 gap-4 mb-4 p-4 bg-gray-700/30 rounded-lg">
+              <div className="flex items-center gap-3">
+                <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                <div>
+                  <div className="text-lg font-semibold text-green-400">{fpStatus.fingerprinted_tracks}</div>
+                  <div className="text-xs text-gray-400">Fingerprinted</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+                <div>
+                  <div className="text-lg font-semibold text-yellow-400">{fpStatus.total_tracks - fpStatus.fingerprinted_tracks}</div>
+                  <div className="text-xs text-gray-400">Unfingerprinted</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Progress during generation */}
+          {fpStatus.is_generating && fpStatus.generation_progress && (
+            <div className="mb-4">
+              <div className="flex justify-between text-sm mb-2">
+                <span className="text-gray-400">Processing...</span>
+                <span className="text-gray-300">
+                  {fpStatus.generation_progress.processed + fpStatus.generation_progress.failed} / {fpStatus.generation_progress.total}
+                </span>
+              </div>
+              <div className="w-full bg-gray-700 rounded-full h-3">
+                <div 
+                  className="bg-purple-500 h-3 rounded-full transition-all duration-300"
+                  style={{ 
+                    width: `${((fpStatus.generation_progress.processed + fpStatus.generation_progress.failed) / fpStatus.generation_progress.total) * 100}%` 
+                  }}
+                />
+              </div>
+              <div className="flex justify-between text-xs mt-1 text-gray-500">
+                <span className="text-green-400">{fpStatus.generation_progress.processed} processed</span>
+                {fpStatus.generation_progress.failed > 0 && (
+                  <span className="text-red-400">{fpStatus.generation_progress.failed} failed</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Workers Selector - only show when not running */}
+          {!fpStatus.is_generating && (
+            <div className="mb-4">
+              <label className="flex items-center gap-2 text-sm text-gray-400 mb-2">
+                <Cpu className="w-4 h-4" />
+                Parallel Workers
+              </label>
+              <div className="flex items-center gap-3 max-w-xs">
+                <input
+                  type="range"
+                  min="1"
+                  max="16"
+                  value={workers}
+                  onChange={(e) => setWorkers(parseInt(e.target.value))}
+                  className="flex-1 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary-500"
+                />
+                <span className="w-8 text-center font-mono text-lg">{workers}</span>
+              </div>
+              <div className="flex items-start gap-2 mt-3 p-3 bg-gray-700/50 rounded-lg max-w-lg">
+                <Info className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-gray-400">
+                  More workers = faster processing but higher CPU/memory usage. 
+                  <strong className="text-gray-300"> Recommended: 4-8</strong> for most systems. 
+                  Use 12-16 on high-end machines.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Regenerate All Toggle - only show when not running and some tracks are fingerprinted */}
+          {!fpStatus.is_generating && fpStatus.fingerprinted_tracks > 0 && (
+            <div className="mb-4">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={regenerateAll}
+                  onChange={(e) => setRegenerateAll(e.target.checked)}
+                  className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-primary-500 focus:ring-primary-500"
+                />
+                <span className="text-sm text-gray-300">
+                  Regenerate all tracks
+                </span>
+                <span className="text-xs text-gray-500">
+                  ({regenerateAll ? fpStatus.total_tracks : fpStatus.total_tracks - fpStatus.fingerprinted_tracks} tracks will be processed)
+                </span>
+              </label>
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex gap-3">
+            {!fpStatus.is_generating ? (
+              <ProgressButton
+                onClick={() => fingerprintMutation.mutate({ workerCount: workers, overwrite: regenerateAll })}
+                isLoading={fingerprintMutation.isPending}
+                loadingText={`Starting with ${workers} workers...`}
+                icon={<Fingerprint className="w-4 h-4" />}
+                variant="primary"
+                disabled={!regenerateAll && fpStatus.fingerprinted_tracks >= fpStatus.total_tracks}
+              >
+                {regenerateAll 
+                  ? `Regenerate All (${fpStatus.total_tracks})` 
+                  : fpStatus.fingerprinted_tracks >= fpStatus.total_tracks 
+                    ? 'All Tracks Fingerprinted' 
+                    : `Generate Unfingerprinted (${fpStatus.total_tracks - fpStatus.fingerprinted_tracks})`
+                }
+              </ProgressButton>
+            ) : (
+              <button
+                onClick={() => stopMutation.mutate()}
+                disabled={stopMutation.isPending}
+                className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {stopMutation.isPending ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Square className="w-4 h-4" />
+                )}
+                Stop Generation
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Delete Result Toast */}
       {deleteResult && (

@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from sqlalchemy import select
 from loguru import logger
+import asyncio
 
 from backend.services.database import get_db
 from backend.models.track import Track
@@ -21,6 +22,15 @@ from backend.config import settings
 from backend.api.settings import load_saved_settings
 
 router = APIRouter(prefix="/fingerprint", tags=["fingerprint"])
+
+# Global state for fingerprint generation
+fingerprint_state = {
+    "is_running": False,
+    "should_cancel": False,
+    "processed": 0,
+    "failed": 0,
+    "total": 0
+}
 
 
 class IdentifyRequest(BaseModel):
@@ -39,6 +49,8 @@ class FingerprintStatusResponse(BaseModel):
     acoustid_configured: bool
     total_tracks: int
     fingerprinted_tracks: int
+    is_generating: bool = False
+    generation_progress: Optional[dict] = None
 
 
 class DuplicateGroup(BaseModel):
@@ -74,12 +86,33 @@ async def get_fingerprint_status():
         )
         fingerprinted = len(fp_result.scalars().all())
     
+    progress = None
+    if fingerprint_state["is_running"]:
+        progress = {
+            "processed": fingerprint_state["processed"],
+            "failed": fingerprint_state["failed"],
+            "total": fingerprint_state["total"]
+        }
+    
     return FingerprintStatusResponse(
         fpcalc_available=fpcalc_ok,
         acoustid_configured=bool(acoustid_key),
         total_tracks=total,
-        fingerprinted_tracks=fingerprinted
+        fingerprinted_tracks=fingerprinted,
+        is_generating=fingerprint_state["is_running"],
+        generation_progress=progress
     )
+
+
+@router.post("/stop")
+async def stop_fingerprint_generation():
+    """Stop the running fingerprint generation process."""
+    if not fingerprint_state["is_running"]:
+        return {"success": False, "message": "No fingerprint generation is running"}
+    
+    fingerprint_state["should_cancel"] = True
+    logger.info("Fingerprint generation cancellation requested")
+    return {"success": True, "message": "Cancellation requested"}
 
 
 @router.post("/identify", response_model=IdentifyResponse)
@@ -159,20 +192,37 @@ async def apply_identification(track_id: int, metadata: dict):
 
 
 @router.post("/generate", response_model=GenerateFingerprintsResponse)
-async def generate_fingerprints(
+async def generate_fingerprints_endpoint(
     background_tasks: BackgroundTasks,
-    overwrite: bool = False
+    overwrite: bool = False,
+    workers: int = 4
 ):
     """
     Generate fingerprints for all tracks in the library.
-    Runs in background for large libraries.
+    Uses parallel processing for better performance.
+    
+    Args:
+        overwrite: Regenerate fingerprints even if they exist
+        workers: Number of parallel workers (default 4, max 8)
     """
+    global fingerprint_state
+    
+    # Check if already running
+    if fingerprint_state["is_running"]:
+        raise HTTPException(
+            status_code=409,
+            detail="Fingerprint generation already in progress. Stop it first or wait for completion."
+        )
+    
     fpcalc_ok = await check_fpcalc_available()
     if not fpcalc_ok:
         raise HTTPException(
             status_code=500,
             detail="fpcalc (Chromaprint) not available. Install libchromaprint-tools."
         )
+    
+    # Limit workers to reasonable range
+    workers = max(1, min(workers, 8))
     
     async with get_db() as db:
         if overwrite:
@@ -191,30 +241,82 @@ async def generate_fingerprints(
                 message="All tracks already have fingerprints"
             )
         
-        processed = 0
-        failed = 0
+        # Initialize state
+        fingerprint_state["is_running"] = True
+        fingerprint_state["should_cancel"] = False
+        fingerprint_state["processed"] = 0
+        fingerprint_state["failed"] = 0
+        fingerprint_state["total"] = len(tracks)
         
-        for track in tracks:
-            try:
-                fp_result = await generate_fingerprint(track.filepath)
-                if fp_result:
-                    duration, fingerprint = fp_result
-                    track.fingerprint_hash = fingerprint_to_hash(fingerprint)
+        # Create a semaphore to limit concurrent fpcalc processes
+        semaphore = asyncio.Semaphore(workers)
+        
+        async def process_track(track):
+            """Process a single track with semaphore limiting and cancellation check."""
+            # Check for cancellation before processing
+            if fingerprint_state["should_cancel"]:
+                return (track.id, None, "Cancelled")
+            
+            async with semaphore:
+                # Check again after acquiring semaphore
+                if fingerprint_state["should_cancel"]:
+                    return (track.id, None, "Cancelled")
+                
+                try:
+                    fp_result = await generate_fingerprint(track.filepath)
+                    if fp_result:
+                        duration, fingerprint = fp_result
+                        fingerprint_state["processed"] += 1
+                        return (track.id, fingerprint_to_hash(fingerprint), None)
+                    else:
+                        fingerprint_state["failed"] += 1
+                        return (track.id, None, "No fingerprint generated")
+                except Exception as e:
+                    logger.error(f"Error fingerprinting {track.filepath}: {e}")
+                    fingerprint_state["failed"] += 1
+                    return (track.id, None, str(e))
+        
+        try:
+            # Process all tracks in parallel (limited by semaphore)
+            logger.info(f"Generating fingerprints for {len(tracks)} tracks using {workers} workers")
+            results = await asyncio.gather(*[process_track(t) for t in tracks])
+            
+            # Update database with results
+            processed = 0
+            failed = 0
+            cancelled = 0
+            track_map = {t.id: t for t in tracks}
+            
+            for track_id, fp_hash, error in results:
+                if error == "Cancelled":
+                    cancelled += 1
+                elif fp_hash:
+                    track_map[track_id].fingerprint_hash = fp_hash
                     processed += 1
                 else:
                     failed += 1
-            except Exception as e:
-                logger.error(f"Error fingerprinting {track.filepath}: {e}")
-                failed += 1
-        
-        await db.commit()
-        
-        return GenerateFingerprintsResponse(
-            success=True,
-            processed=processed,
-            failed=failed,
-            message=f"Generated fingerprints for {processed} tracks ({failed} failed)"
-        )
+            
+            await db.commit()
+            
+            was_cancelled = fingerprint_state["should_cancel"]
+            
+            if was_cancelled:
+                message = f"Cancelled. Processed {processed} tracks before stopping ({failed} failed, {cancelled} skipped)"
+                logger.info(f"Fingerprint generation cancelled: {message}")
+            else:
+                message = f"Generated fingerprints for {processed} tracks ({failed} failed)"
+                logger.info(f"Fingerprint generation complete: {processed} processed, {failed} failed")
+            
+            return GenerateFingerprintsResponse(
+                success=not was_cancelled,
+                processed=processed,
+                failed=failed,
+                message=message
+            )
+        finally:
+            # Always reset state when done
+            fingerprint_state["is_running"] = False
+            fingerprint_state["should_cancel"] = False
 
 
 @router.get("/duplicates", response_model=DuplicatesResponse)
