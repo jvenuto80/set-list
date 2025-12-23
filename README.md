@@ -9,6 +9,33 @@ Overview of your library with quick stats and recent tracks.
 
 ![Dashboard](docs/dashboard.png)
 
+### Tracks
+Browse and filter your entire music library.
+
+![Tracks](docs/tracks.png)
+
+### Track Detail
+View and edit metadata, search for matches, and choose cover art.
+
+![Track Detail](docs/track-detail.png)
+
+### Scan
+Configure directories and scan for new audio files.
+
+![Scan](docs/scan.png)
+
+### Series Detection
+Automatically group radio shows and podcast episodes together.
+
+![Series To Tag](docs/series-to-tag.png)
+
+![Series Tagged](docs/series-tagged.png)
+
+### Settings
+Configure scan settings, matching thresholds, and manage your database.
+
+![Settings](docs/settings.png)
+
 ## Features
 
 - 🎵 **Automatic Scanning**: Scans directories for audio files (MP3, FLAC, WAV, M4A, AAC, OGG)
